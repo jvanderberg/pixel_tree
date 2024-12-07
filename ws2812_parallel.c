@@ -15,7 +15,7 @@
 #include "hardware/irq.h"
 #include "ws2812.pio.h"
 
-#define FRAC_BITS 4
+#define FRAC_BITS 0
 #define NUM_PIXELS 64
 #define WS2812_PIN_BASE 3
 
@@ -317,7 +317,7 @@ int main() {
             pattern_table[pat].pat(NUM_PIXELS, t);
 
             transform_strips(strips, count_of(strips), colors, NUM_PIXELS * 4, brightness);
-            // dither_values(colors, states[current], states[current ^ 1], NUM_PIXELS * 4);
+            dither_values(colors, states[current], states[current ^ 1], NUM_PIXELS * 4);
             sem_acquire_blocking(&reset_delay_complete_sem);
             output_strips_dma(states[current], NUM_PIXELS * 4);
 
