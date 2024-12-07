@@ -16,8 +16,8 @@
 #include "ws2812.pio.h"
 
 #define FRAC_BITS 0
-#define NUM_PIXELS 64
-#define WS2812_PIN_BASE 3
+#define NUM_PIXELS 2
+#define WS2812_PIN_BASE 0
 
 // Check the pin is compatible with the platform
 #if WS2812_PIN_BASE >= NUM_BANK0_GPIOS
@@ -32,9 +32,6 @@ static inline void put_pixel(uint32_t pixel_grb) {
     *current_strip_out++ = pixel_grb & 0xffu;
     *current_strip_out++ = (pixel_grb >> 8u) & 0xffu;
     *current_strip_out++ = (pixel_grb >> 16u) & 0xffu;
-    if (current_strip_4color) {
-        *current_strip_out++ = 0; // todo adjust?
-    }
 }
 
 static inline uint32_t urgb_u32(uint8_t r, uint8_t g, uint8_t b) {
@@ -59,10 +56,9 @@ void pattern_snakes(uint len, uint t) {
 }
 
 void pattern_random(uint len, uint t) {
-    if (t % 8)
-        return;
+   
     for (uint i = 0; i < len; ++i)
-        put_pixel(rand());
+        put_pixel(0xff00ff);
 }
 
 void pattern_sparkle(uint len, uint t) {
@@ -86,6 +82,18 @@ void pattern_solid(uint len, uint t) {
     for (uint i = 0; i < len; ++i) {
         put_pixel(t * 0x10101);
     }
+}
+
+
+void printBinary(const char *description, unsigned int number) {
+    printf("%s: ", description); // Print the description
+    for (int i = 31; i >= 0; i--) { // Iterate through the bits
+        printf("%c", (number & (1 << i)) ? '1' : '0');
+        if (i % 4 == 0 && i != 0) { // Add a space every 4 bits
+            printf(" ");
+        }
+    }
+    printf("\n"); // Newline at the end
 }
 
 int level = 8;
@@ -133,20 +141,12 @@ typedef struct {
 } value_bits_t;
 
 // Add FRAC_BITS planes of e to s and store in d
-void add_error(value_bits_t *d, const value_bits_t *s, const value_bits_t *e) {
-    uint32_t carry_plane = 0;
-    // add the FRAC_BITS low planes
-    for (int p = VALUE_PLANE_COUNT - 1; p >= 8; p--) {
-        uint32_t e_plane = e->planes[p];
-        uint32_t s_plane = s->planes[p];
-        d->planes[p] = (e_plane ^ s_plane) ^ carry_plane;
-        carry_plane = (e_plane & s_plane) | (carry_plane & (s_plane ^ e_plane));
-    }
-    // then just ripple carry through the non fractional bits
+void add_error(value_bits_t *d, const value_bits_t *s) {
+
     for (int p = 7; p >= 0; p--) {
         uint32_t s_plane = s->planes[p];
-        d->planes[p] = s_plane ^ carry_plane;
-        carry_plane &= s_plane;
+        d->planes[p] = s_plane;
+
     }
 }
 
@@ -164,8 +164,8 @@ void transform_strips(strip_t **strips, uint num_strips, value_bits_t *values, u
         for (uint i = 0; i < num_strips; i++) {
             if (v < strips[i]->data_len) {
                 // todo clamp?
-                uint32_t value = (strips[i]->data[v] * strips[i]->frac_brightness) >> 8u;
-                value = (value * frac_brightness) >> 8u;
+                uint32_t value = strips[i]->data[v];
+               
                 for (int j = 0; j < VALUE_PLANE_COUNT && value; j++, value >>= 1u) {
                     if (value & 1u) values[v].planes[VALUE_PLANE_COUNT - 1 - j] |= 1u << i;
                 }
@@ -176,7 +176,7 @@ void transform_strips(strip_t **strips, uint num_strips, value_bits_t *values, u
 
 void dither_values(const value_bits_t *colors, value_bits_t *state, const value_bits_t *old_state, uint value_length) {
     for (uint i = 0; i < value_length; i++) {
-        add_error(state + i, colors + i, old_state + i);
+        add_error(state + i, colors + i);
     }
 }
 
@@ -188,18 +188,18 @@ static value_bits_t states[2][NUM_PIXELS * 4];
 // example - strip 0 is RGB only
 static uint8_t strip0_data[NUM_PIXELS * 3];
 // example - strip 1 is RGBW
-static uint8_t strip1_data[NUM_PIXELS * 4];
+static uint8_t strip1_data[NUM_PIXELS * 3];
 
 strip_t strip0 = {
         .data = strip0_data,
         .data_len = sizeof(strip0_data),
-        .frac_brightness = 0x40,
+        .frac_brightness = 0xff,
 };
 
 strip_t strip1 = {
         .data = strip1_data,
         .data_len = sizeof(strip1_data),
-        .frac_brightness = 0x100,
+        .frac_brightness = 0xff,
 };
 
 strip_t *strips[] = {
@@ -279,7 +279,22 @@ void output_strips_dma(value_bits_t *bits, uint value_length) {
     dma_channel_hw_addr(DMA_CB_CHANNEL)->al3_read_addr_trig = (uintptr_t) fragment_start;
 }
 
+uint current = 0;
+void print_current_buffer() {
+    printf("Current buffer:\n");
 
+    for (int i = 0; i < NUM_PIXELS * 4; i++) {
+        printf("Pixel %d: \n", i);
+        for (int j = VALUE_PLANE_COUNT - 1; j >=0; j--) {
+            for (int k = 0; k < 32; k++) {
+                printf("%d", (states[current][i].planes[j] >> k) & 1);
+            }
+            printf("\n");
+        }
+        printf("\n");
+    }
+    printf("\n");
+}
 int main() {
     //set_sys_clock_48();
     stdio_init_all();
@@ -306,26 +321,30 @@ int main() {
         if (rand() & 1) dir = 0;
         puts(pattern_table[pat].name);
         puts(dir == 1 ? "(forward)" : dir ? "(backward)" : "(still)");
-        int brightness = 0;
-        uint current = 0;
+        int brightness = 0xff;
+      
         for (int k = 0; k < 1000; ++k) {
             current_strip_out = strip0.data;
             current_strip_4color = false;
-            pattern_table[pat].pat(NUM_PIXELS, t);
+            pattern_random(NUM_PIXELS, t);
             current_strip_out = strip1.data;
             current_strip_4color = true;
-            pattern_table[pat].pat(NUM_PIXELS, t);
+            pattern_random(NUM_PIXELS, t);
 
             transform_strips(strips, count_of(strips), colors, NUM_PIXELS * 4, brightness);
+        
+            print_current_buffer();
             dither_values(colors, states[current], states[current ^ 1], NUM_PIXELS * 4);
+            printf("After dithering:\n");
+            print_current_buffer();
             sem_acquire_blocking(&reset_delay_complete_sem);
             output_strips_dma(states[current], NUM_PIXELS * 4);
 
             current ^= 1;
             t += dir;
-            brightness++;
+            
             if (brightness == (0x20 << FRAC_BITS)) brightness = 0;
-            sleep_ms(100);
+            sleep_ms(1000);
         }
         memset(&states, 0, sizeof(states)); // clear out errors
     }
