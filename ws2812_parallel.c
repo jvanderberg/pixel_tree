@@ -7,6 +7,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
+#include <sys/time.h>
+#include <unistd.h>
 
 #include "pico/stdlib.h"
 #include "pico/sem.h"
@@ -15,197 +18,79 @@
 #include "hardware/irq.h"
 #include "ws2812.pio.h"
 
-#define FRAC_BITS 0
-#define NUM_PIXELS 2
+#define NUM_PIXELS 42
 #define WS2812_PIN_BASE 0
+#define STRIPS 28
 
 // Check the pin is compatible with the platform
 #if WS2812_PIN_BASE >= NUM_BANK0_GPIOS
 #error Attempting to use a pin>=32 on a platform that does not support it
 #endif
+// we store value (8 bits of a single color (R/G/B/W) value) for multiple
+// strips of pixels, in bit planes. bit plane N has the Nth bit of each strip of pixels.
+#define VALUE_PLANE_COUNT (8)
+typedef struct
+{
+    // stored MSB first
+    uint32_t planes[VALUE_PLANE_COUNT];
+} value_bits_t;
 
-// horrible temporary hack to avoid changing pattern code
-static uint8_t *current_strip_out;
-static bool current_strip_4color;
+// Just a simple raster display of RGB values for each pixel
+uint32_t display[STRIPS][NUM_PIXELS];
 
-static inline void put_pixel(uint32_t pixel_grb) {
-    *current_strip_out++ = pixel_grb & 0xffu;
-    *current_strip_out++ = (pixel_grb >> 8u) & 0xffu;
-    *current_strip_out++ = (pixel_grb >> 16u) & 0xffu;
-}
+static value_bits_t colors[NUM_PIXELS * 3];
+// double buffer the state of the pixel strip, since we update next version in parallel with DMAing out old version
 
-static inline uint32_t urgb_u32(uint8_t r, uint8_t g, uint8_t b) {
-    return
-            ((uint32_t) (r) << 8) |
-            ((uint32_t) (g) << 16) |
-            (uint32_t) (b);
-}
+uint current_buffer = 0;
+static value_bits_t buffers[2][NUM_PIXELS * 3];
 
-void pattern_snakes(uint len, uint t) {
-    for (uint i = 0; i < len; ++i) {
-        uint x = (i + (t >> 1)) % 64;
-        if (x < 10)
-            put_pixel(urgb_u32(0xff, 0, 0));
-        else if (x >= 15 && x < 25)
-            put_pixel(urgb_u32(0, 0xff, 0));
-        else if (x >= 30 && x < 40)
-            put_pixel(urgb_u32(0, 0, 0xff));
-        else
-            put_pixel(0);
-    }
-}
-
-void pattern_random(uint len, uint t) {
-   
-    for (uint i = 0; i < len; ++i)
-        put_pixel(0xff00ff);
-}
-
-void pattern_sparkle(uint len, uint t) {
-    if (t % 8)
-        return;
-    for (uint i = 0; i < len; ++i)
-        put_pixel(rand() % 16 ? 0 : 0xffffffff);
-}
-
-void pattern_greys(uint len, uint t) {
-    uint max = 100; // let's not draw too much current!
-    t %= max;
-    for (uint i = 0; i < len; ++i) {
-        put_pixel(t * 0x10101);
-        if (++t >= max) t = 0;
-    }
-}
-
-void pattern_solid(uint len, uint t) {
-    t = 1;
-    for (uint i = 0; i < len; ++i) {
-        put_pixel(t * 0x10101);
-    }
-}
-
-
-void printBinary(const char *description, unsigned int number) {
+void printBinary(const char *description, unsigned int number)
+{
     printf("%s: ", description); // Print the description
-    for (int i = 31; i >= 0; i--) { // Iterate through the bits
+    for (int i = 31; i >= 0; i--)
+    { // Iterate through the bits
         printf("%c", (number & (1 << i)) ? '1' : '0');
-        if (i % 4 == 0 && i != 0) { // Add a space every 4 bits
+        if (i % 4 == 0 && i != 0)
+        { // Add a space every 4 bits
             printf(" ");
         }
     }
     printf("\n"); // Newline at the end
 }
 
-int level = 8;
+/**
+ * Put a pixel into the bit plane buffer
+ */
+static inline void put_pixel(uint strip, uint pixel, uint32_t pixel_rgb)
+{
 
-void pattern_fade(uint len, uint t) {
-    uint shift = 4;
+    uint b = pixel_rgb & 0xffu;
+    uint g = (pixel_rgb >> 8u) & 0xffu;
+    uint r = (pixel_rgb >> 16u) & 0xffu;
+    uint v = pixel * 3;
 
-    uint max = 16; // let's not draw too much current!
-    max <<= shift;
+    uint32_t mask = 1 << strip; // The mask for the current strip
 
-    uint slow_t = t / 32;
-    slow_t = level;
-    slow_t %= max;
+    uint color_array[3] = {r, g, b};
 
-    static int error = 0;
-    slow_t += error;
-    error = slow_t & ((1u << shift) - 1);
-    slow_t >>= shift;
-    slow_t *= 0x010101;
-
-    for (uint i = 0; i < len; ++i) {
-        put_pixel(slow_t);
-    }
-}
-
-typedef void (*pattern)(uint len, uint t);
-const struct {
-    pattern pat;
-    const char *name;
-} pattern_table[] = {
-        {pattern_snakes,  "Snakes!"},
-        {pattern_random,  "Random data"},
-        {pattern_sparkle, "Sparkles"},
-        {pattern_greys,   "Greys"},
-//        {pattern_solid,  "Solid!"},
-//        {pattern_fade, "Fade"},
-};
-
-#define VALUE_PLANE_COUNT (8 + FRAC_BITS)
-// we store value (8 bits + fractional bits of a single color (R/G/B/W) value) for multiple
-// strips of pixels, in bit planes. bit plane N has the Nth bit of each strip of pixels.
-typedef struct {
-    // stored MSB first
-    uint32_t planes[VALUE_PLANE_COUNT];
-} value_bits_t;
-
-// Add FRAC_BITS planes of e to s and store in d
-void add_error(value_bits_t *d, const value_bits_t *s) {
-
-    for (int p = 7; p >= 0; p--) {
-        uint32_t s_plane = s->planes[p];
-        d->planes[p] = s_plane;
-
-    }
-}
-
-typedef struct {
-    uint8_t *data;
-    uint data_len;
-    uint frac_brightness; // 256 = *1.0;
-} strip_t;
-
-// takes 8 bit color values, multiply by brightness and store in bit planes
-void transform_strips(strip_t **strips, uint num_strips, value_bits_t *values, uint value_length,
-                       uint frac_brightness) {
-    for (uint v = 0; v < value_length; v++) {
-        memset(&values[v], 0, sizeof(values[v]));
-        for (uint i = 0; i < num_strips; i++) {
-            if (v < strips[i]->data_len) {
-                // todo clamp?
-                uint32_t value = strips[i]->data[v];
-               
-                for (int j = 0; j < VALUE_PLANE_COUNT && value; j++, value >>= 1u) {
-                    if (value & 1u) values[v].planes[VALUE_PLANE_COUNT - 1 - j] |= 1u << i;
-                }
-            }
+    // Iterate through the colors
+    for (int i = 0; i < 3; i++)
+    { // Each bit plane is 32 bits, one bit for each strip, with the MSB being the first strip
+        // There are three bit planes, one for each color
+        uint32_t *values = buffers[current_buffer][v + i].planes;
+        uint32_t color = color_array[i];
+        // Iterate through the 8 bits in each color
+        for (uint bit = 0; bit < 8; bit++)
+        {
+            // Get the current color at this bit plane location
+            uint32_t value = values[bit];
+            // Calculate the bit we are setting.
+            uint color_bit = (color >> (7 - bit)) & 1;
+            // Calculate the new value in the bit plane.
+            values[bit] = (color_bit) ? (value | (mask)) : (value & ~(mask));
         }
     }
 }
-
-void dither_values(const value_bits_t *colors, value_bits_t *state, const value_bits_t *old_state, uint value_length) {
-    for (uint i = 0; i < value_length; i++) {
-        add_error(state + i, colors + i);
-    }
-}
-
-// requested colors * 4 to allow for RGBW
-static value_bits_t colors[NUM_PIXELS * 4];
-// double buffer the state of the pixel strip, since we update next version in parallel with DMAing out old version
-static value_bits_t states[2][NUM_PIXELS * 4];
-
-// example - strip 0 is RGB only
-static uint8_t strip0_data[NUM_PIXELS * 3];
-// example - strip 1 is RGBW
-static uint8_t strip1_data[NUM_PIXELS * 3];
-
-strip_t strip0 = {
-        .data = strip0_data,
-        .data_len = sizeof(strip0_data),
-        .frac_brightness = 0xff,
-};
-
-strip_t strip1 = {
-        .data = strip1_data,
-        .data_len = sizeof(strip1_data),
-        .frac_brightness = 0xff,
-};
-
-strip_t *strips[] = {
-        &strip0,
-        &strip1,
-};
 
 // bit plane content dma channel
 #define DMA_CHANNEL 0
@@ -216,32 +101,37 @@ strip_t *strips[] = {
 #define DMA_CB_CHANNEL_MASK (1u << DMA_CB_CHANNEL)
 #define DMA_CHANNELS_MASK (DMA_CHANNEL_MASK | DMA_CB_CHANNEL_MASK)
 
-// start of each value fragment (+1 for NULL terminator)
-static uintptr_t fragment_start[NUM_PIXELS * 4 + 1];
+// start of each value (+1 for NULL terminator)
+static uintptr_t fragment_start[NUM_PIXELS * 3 + 1];
 
 // posted when it is safe to output a new set of values
 static struct semaphore reset_delay_complete_sem;
 // alarm handle for handling delay
 alarm_id_t reset_delay_alarm_id;
 
-int64_t reset_delay_complete(__unused alarm_id_t id, __unused void *user_data) {
+int64_t reset_delay_complete(__unused alarm_id_t id, __unused void *user_data)
+{
     reset_delay_alarm_id = 0;
     sem_release(&reset_delay_complete_sem);
     // no repeat
     return 0;
 }
 
-void __isr dma_complete_handler() {
-    if (dma_hw->ints0 & DMA_CHANNEL_MASK) {
+void __isr dma_complete_handler()
+{
+    if (dma_hw->ints0 & DMA_CHANNEL_MASK)
+    {
         // clear IRQ
         dma_hw->ints0 = DMA_CHANNEL_MASK;
         // when the dma is complete we start the reset delay timer
-        if (reset_delay_alarm_id) cancel_alarm(reset_delay_alarm_id);
+        if (reset_delay_alarm_id)
+            cancel_alarm(reset_delay_alarm_id);
         reset_delay_alarm_id = add_alarm_in_us(400, reset_delay_complete, NULL, true);
     }
 }
 
-void dma_init(PIO pio, uint sm) {
+void dma_init(PIO pio, uint sm)
+{
     dma_claim_mask(DMA_CHANNELS_MASK);
 
     // main DMA channel outputs 8 word fragments, and then chains back to the chain channel
@@ -253,7 +143,7 @@ void dma_init(PIO pio, uint sm) {
                           &channel_config,
                           &pio->txf[sm],
                           NULL, // set by chain
-                          8, // 8 words for 8 bit planes
+                          8,    // 8 words for 8 bit planes
                           false);
 
     // chain channel sends single word pointer to start of fragment each time
@@ -261,8 +151,9 @@ void dma_init(PIO pio, uint sm) {
     dma_channel_configure(DMA_CB_CHANNEL,
                           &chain_config,
                           &dma_channel_hw_addr(
-                                  DMA_CHANNEL)->al3_read_addr_trig,  // ch DMA config (target "ring" buffer size 4) - this is (read_addr trigger)
-                          NULL, // set later
+                               DMA_CHANNEL)
+                               ->al3_read_addr_trig, // ch DMA config (target "ring" buffer size 4) - this is (read_addr trigger)
+                          NULL,                      // set later
                           1,
                           false);
 
@@ -271,23 +162,28 @@ void dma_init(PIO pio, uint sm) {
     irq_set_enabled(DMA_IRQ_0, true);
 }
 
-void output_strips_dma(value_bits_t *bits, uint value_length) {
-    for (uint i = 0; i < value_length; i++) {
-        fragment_start[i] = (uintptr_t) bits[i].planes; // MSB first
+void output_strips_dma(value_bits_t *bits, uint value_length)
+{
+    for (uint i = 0; i < value_length; i++)
+    {
+        fragment_start[i] = (uintptr_t)bits[i].planes; // MSB first
     }
     fragment_start[value_length] = 0;
-    dma_channel_hw_addr(DMA_CB_CHANNEL)->al3_read_addr_trig = (uintptr_t) fragment_start;
+    dma_channel_hw_addr(DMA_CB_CHANNEL)->al3_read_addr_trig = (uintptr_t)fragment_start;
 }
 
-uint current = 0;
-void print_current_buffer() {
+void print_current_buffer()
+{
     printf("Current buffer:\n");
 
-    for (int i = 0; i < NUM_PIXELS * 4; i++) {
+    for (int i = 0; i < NUM_PIXELS * 3; i++)
+    {
         printf("Pixel %d: \n", i);
-        for (int j = VALUE_PLANE_COUNT - 1; j >=0; j--) {
-            for (int k = 0; k < 32; k++) {
-                printf("%d", (states[current][i].planes[j] >> k) & 1);
+        for (int j = VALUE_PLANE_COUNT - 1; j >= 0; j--)
+        {
+            for (int k = 0; k < 32; k++)
+            {
+                printf("%d", (buffers[current_buffer][i].planes[j] >> k) & 1);
             }
             printf("\n");
         }
@@ -295,58 +191,113 @@ void print_current_buffer() {
     }
     printf("\n");
 }
-int main() {
-    //set_sys_clock_48();
+
+// DMA the current bit plane to the PIO
+// We double buffer so we don't write to the memory while the DMA is reading from it
+void show_pixels()
+{
+    sem_acquire_blocking(&reset_delay_complete_sem);
+    output_strips_dma(buffers[current_buffer], NUM_PIXELS * 3);
+    // copy current buffer to next buffer
+    memcpy(buffers[current_buffer ^ 1], buffers[current_buffer], sizeof(buffers[0]));
+    // switch buffers
+    current_buffer ^= 1;
+}
+// Copy pixels from display to bitplanes using put_pixel
+void show_display()
+{
+    for (uint strip = 0; strip < STRIPS; strip++)
+    {
+        for (uint pixel = 0; pixel < NUM_PIXELS; pixel++)
+        {
+            put_pixel(strip, pixel, display[strip][pixel]);
+        }
+    }
+    show_pixels();
+}
+uint64_t timer_start()
+{
+    return time_us_64();
+}
+
+double timer_end(uint64_t start, const char *comment)
+{
+    uint64_t end_us = time_us_64();
+    // Calculate elapsed time in seconds
+    double elapsed = (double)(end_us - start);
+    printf("%s: %dµs\n", comment, (int)elapsed);
+    return elapsed;
+}
+
+uint64_t last_sparkle_time = 0;
+
+void run_sparkle()
+{
+    // Run every 16ms
+    if (time_us_64() - last_sparkle_time < 16000)
+    {
+        return;
+    }
+    else
+    {
+        last_sparkle_time = time_us_64();
+    }
+    for (int i = 0; i < STRIPS; i++)
+    {
+        for (int j = 0; j < NUM_PIXELS; j++)
+        {
+            uint32_t rgb = display[i][j];
+            // Randomly every 30th time reset the pixel to white
+            if (rand() % 200 == 0)
+            {
+                rgb = 0x00ffff;
+            }
+            else
+            {
+                uint r = ((rgb >> 16) & 0xff) * 245 >> 8;
+                uint g = ((rgb >> 8) & 0xff) * 245 >> 8;
+                uint b = (rgb & 0xff) * 245 >> 8;
+                // Fade the pixel
+                rgb = (r << 16) | (g << 8) | b;
+            }
+            display[i][j] = rgb;
+        }
+    }
+}
+
+uint64_t my_timer;
+int main()
+{
+    memset(&display[0], 0, sizeof(display[0]));
+
     stdio_init_all();
     printf("WS2812 parallel using pin %d\n", WS2812_PIN_BASE);
 
     PIO pio;
     uint sm;
     uint offset;
-
+    memset(&buffers[0], 0, sizeof(buffers[0]));
+    memset(&buffers[1], 0, sizeof(buffers[1]));
+    print_current_buffer();
     // This will find a free pio and state machine for our program and load it for us
     // We use pio_claim_free_sm_and_add_program_for_gpio_range (for_gpio_range variant)
     // so we will get a PIO instance suitable for addressing gpios >= 32 if needed and supported by the hardware
-    bool success = pio_claim_free_sm_and_add_program_for_gpio_range(&ws2812_parallel_program, &pio, &sm, &offset, WS2812_PIN_BASE, count_of(strips), true);
+    bool success = pio_claim_free_sm_and_add_program_for_gpio_range(&ws2812_parallel_program, &pio, &sm, &offset, WS2812_PIN_BASE, STRIPS, true);
     hard_assert(success);
 
-    ws2812_parallel_program_init(pio, sm, offset, WS2812_PIN_BASE, count_of(strips), 800000);
+    ws2812_parallel_program_init(pio, sm, offset, WS2812_PIN_BASE, STRIPS, 800000);
 
     sem_init(&reset_delay_complete_sem, 1, 1); // initially posted so we don't block first time
     dma_init(pio, sm);
-    int t = 0;
-    while (1) {
-        int pat = rand() % count_of(pattern_table);
-        int dir = (rand() >> 30) & 1 ? 1 : -1;
-        if (rand() & 1) dir = 0;
-        puts(pattern_table[pat].name);
-        puts(dir == 1 ? "(forward)" : dir ? "(backward)" : "(still)");
-        int brightness = 0xff;
-      
-        for (int k = 0; k < 1000; ++k) {
-            current_strip_out = strip0.data;
-            current_strip_4color = false;
-            pattern_random(NUM_PIXELS, t);
-            current_strip_out = strip1.data;
-            current_strip_4color = true;
-            pattern_random(NUM_PIXELS, t);
 
-            transform_strips(strips, count_of(strips), colors, NUM_PIXELS * 4, brightness);
-        
-            print_current_buffer();
-            dither_values(colors, states[current], states[current ^ 1], NUM_PIXELS * 4);
-            printf("After dithering:\n");
-            print_current_buffer();
-            sem_acquire_blocking(&reset_delay_complete_sem);
-            output_strips_dma(states[current], NUM_PIXELS * 4);
+    while (1)
+    {
 
-            current ^= 1;
-            t += dir;
-            
-            if (brightness == (0x20 << FRAC_BITS)) brightness = 0;
-            sleep_ms(1000);
-        }
-        memset(&states, 0, sizeof(states)); // clear out errors
+        show_pixels();
+
+        my_timer = timer_start();
+        run_sparkle();
+        show_display();
     }
 
     // This will free resources and unload our program
