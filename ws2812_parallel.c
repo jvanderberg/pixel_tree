@@ -7,6 +7,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
+#include <sys/time.h>
+#include <unistd.h>
 
 #include "pico/stdlib.h"
 #include "pico/sem.h"
@@ -15,136 +18,80 @@
 #include "hardware/irq.h"
 #include "ws2812.pio.h"
 
-#define FRAC_BITS 0
-#define NUM_PIXELS 2
+#define NUM_PIXELS 42
 #define WS2812_PIN_BASE 0
-#define STRIPS 3
+#define STRIPS 28
 
 // Check the pin is compatible with the platform
 #if WS2812_PIN_BASE >= NUM_BANK0_GPIOS
 #error Attempting to use a pin>=32 on a platform that does not support it
 #endif
-
-
-
-
-
-#define VALUE_PLANE_COUNT (8)
-// we store value (8 bits + fractional bits of a single color (R/G/B/W) value) for multiple
+// we store value (8 bits of a single color (R/G/B/W) value) for multiple
 // strips of pixels, in bit planes. bit plane N has the Nth bit of each strip of pixels.
-typedef struct {
+#define VALUE_PLANE_COUNT (8)
+typedef struct
+{
     // stored MSB first
     uint32_t planes[VALUE_PLANE_COUNT];
 } value_bits_t;
 
-// Add FRAC_BITS planes of e to s and store in d
-void add_error(value_bits_t *state, const value_bits_t *colors, const value_bits_t *old_state) {
-    // uint32_t carry_plane = 0;
-    // // add the FRAC_BITS low planes
-    // for (int p = VALUE_PLANE_COUNT - 1; p >= 8; p--) {
-    //     uint32_t old_state_plane =old_state->planes[p];
-    //     uint32_t colors_plane = colors->planes[p];
-    //     state->planes[p] = (old_state_plane ^ colors_plane) ^ carry_plane;
-    //     carry_plane = (old_state_plane & colors_plane) | (carry_plane & (colors_plane ^ old_state_plane));
-    // }
-    // then just ripple carry through the non fractional bits
-    for (int p = 7; p >= 0; p--) {
-        uint32_t colors_plane = colors->planes[p];
-        state->planes[p] = colors_plane;// ^ carry_plane;
-        // carry_plane &= s_plane;
-    }
-}
+// Just a simple raster display of RGB values for each pixel
+uint32_t display[STRIPS][NUM_PIXELS];
 
-typedef struct {
-    uint8_t *data;
-    uint data_len;
-    uint frac_brightness; // 256 = *1.0;
-} strip_t;
-
-// takes 8 bit color values, multiply by brightness and store in bit planes
-void transform_strips(strip_t **strips, uint num_strips, value_bits_t *values, uint value_length,
-                       uint frac_brightness) {
-    for (uint v = 0; v < value_length; v++) {
-        memset(&values[v], 0, sizeof(values[v]));
-        for (uint i = 0; i < num_strips; i++) {
-            if (v < strips[i]->data_len) {
-                // todo clamp?
-                uint32_t value = (strips[i]->data[v] * strips[i]->frac_brightness) >> 8u;
-                value = (value * frac_brightness) >> 8u;
-                for (int j = 0; j < VALUE_PLANE_COUNT && value; j++, value >>= 1u) {
-                    if (value & 1u) values[v].planes[VALUE_PLANE_COUNT - 1 - j] |= 1u << i;
-                }
-            }
-        }
-    }
-}
-
-
-// requested colors * 4 to allow for RGBW
-static value_bits_t colors[NUM_PIXELS * 4];
+static value_bits_t colors[NUM_PIXELS * 3];
 // double buffer the state of the pixel strip, since we update next version in parallel with DMAing out old version
 
 uint current_buffer = 0;
-static value_bits_t buffers[2][NUM_PIXELS * 4];
+static value_bits_t buffers[2][NUM_PIXELS * 3];
 
-void printBinary(const char *description, unsigned int number) {
+void printBinary(const char *description, unsigned int number)
+{
     printf("%s: ", description); // Print the description
-    for (int i = 31; i >= 0; i--) { // Iterate through the bits
+    for (int i = 31; i >= 0; i--)
+    { // Iterate through the bits
         printf("%c", (number & (1 << i)) ? '1' : '0');
-        if (i % 4 == 0 && i != 0) { // Add a space every 4 bits
+        if (i % 4 == 0 && i != 0)
+        { // Add a space every 4 bits
             printf(" ");
         }
     }
     printf("\n"); // Newline at the end
 }
-static inline void put_pixel(uint strip, uint pixel, uint32_t pixel_rgb) {
-    
+
+/**
+ * Put a pixel into the bit plane buffer
+ */
+static inline void put_pixel(uint strip, uint pixel, uint32_t pixel_rgb)
+{
+
     uint b = pixel_rgb & 0xffu;
     uint g = (pixel_rgb >> 8u) & 0xffu;
     uint r = (pixel_rgb >> 16u) & 0xffu;
-    uint v = pixel *  4;
-    printf("put pixel r %d g %d b %d strip %i pixel %i\n", r, g, b, strip, pixel);
-    printBinary("G", g);
-    printBinary("B", b);
-    uint32_t mask = 1 << 31 - strip; // The mask for the current strip
-    printBinary("Mask", mask);
-    for (int plane=0 ; plane < 3; plane++) {
-        uint32_t *values = buffers[current_buffer][v + plane].planes;
-        printf("Pos: %i\n", v + plane);
-        if (plane == 0) {
-            for (uint bit = 0; bit < 7; bit++) {
-        
-                uint32_t r_value = values[bit];
-                printBinary("Before r value", r_value);  
-                 uint rbit = (r >> (7 - bit)) & 1;
-                printf("R value %d bit %d rbit %d\n", r_value, bit, rbit);
-               
-                values[bit] = (rbit) ? (r_value | (mask)) : (r_value & ~(mask));
-                printBinary("After r value", values[bit]);  
-            }
-        } else if (plane == 1) {
-            for (uint bit = 0; bit < 7; bit++) {
-               
-                uint32_t g_value = values[bit];
-                printf("G value %d bit %d\n", g_value, bit);
-                uint gbit = (g >> (7 - bit)) & 1;
-                values[bit] = (gbit) ? (g_value | (mask)) : (g_value & ~(mask)); 
-                printBinary("After g value", values[bit]);   
-            }
-        } else if (plane == 2) {
-            for (uint bit = 0; bit < 7; bit++) {
-                uint32_t b_value = values[bit];
-                printf("B value %d bit %d\n", b_value, bit);
-                uint bbit = (b >> (7 - bit)) & 1;
-                values[bit] = (bbit) ? (b_value | (mask)) : (b_value & ~(mask));  
-                printBinary("After b value", values[bit]);  
-            }
-             
+    uint v = pixel * 3;
+
+    uint32_t mask = 1 << strip; // The mask for the current strip
+
+    uint color_array[3] = {r, g, b};
+
+    // Iterate through the colors
+    for (int i = 0; i < 3; i++)
+    { // Each bit plane is 32 bits, one bit for each strip, with the MSB being the first strip
+        // There are three bit planes, one for each color
+        uint32_t *values = buffers[current_buffer][v + i].planes;
+        uint32_t color = color_array[i];
+        // Iterate through the 8 bits in each color
+        for (uint bit = 0; bit < 8; bit++)
+        {
+            // Get the current color at this bit plane location
+            uint32_t value = values[bit];
+            // Calculate the bit we are setting.
+            uint color_bit = (color >> (7 - bit)) & 1;
+            // Calculate the new value in the bit plane.
+            values[bit] = (color_bit) ? (value | (mask)) : (value & ~(mask));
         }
-        printf("After %d\n", values);
     }
-    
 }
+
 // bit plane content dma channel
 #define DMA_CHANNEL 0
 // chain channel for configuring main dma channel to output from disjoint 8 word fragments of memory
@@ -154,32 +101,37 @@ static inline void put_pixel(uint strip, uint pixel, uint32_t pixel_rgb) {
 #define DMA_CB_CHANNEL_MASK (1u << DMA_CB_CHANNEL)
 #define DMA_CHANNELS_MASK (DMA_CHANNEL_MASK | DMA_CB_CHANNEL_MASK)
 
-// start of each value fragment (+1 for NULL terminator)
-static uintptr_t fragment_start[NUM_PIXELS * 4 + 1];
+// start of each value (+1 for NULL terminator)
+static uintptr_t fragment_start[NUM_PIXELS * 3 + 1];
 
 // posted when it is safe to output a new set of values
 static struct semaphore reset_delay_complete_sem;
 // alarm handle for handling delay
 alarm_id_t reset_delay_alarm_id;
 
-int64_t reset_delay_complete(__unused alarm_id_t id, __unused void *user_data) {
+int64_t reset_delay_complete(__unused alarm_id_t id, __unused void *user_data)
+{
     reset_delay_alarm_id = 0;
     sem_release(&reset_delay_complete_sem);
     // no repeat
     return 0;
 }
 
-void __isr dma_complete_handler() {
-    if (dma_hw->ints0 & DMA_CHANNEL_MASK) {
+void __isr dma_complete_handler()
+{
+    if (dma_hw->ints0 & DMA_CHANNEL_MASK)
+    {
         // clear IRQ
         dma_hw->ints0 = DMA_CHANNEL_MASK;
         // when the dma is complete we start the reset delay timer
-        if (reset_delay_alarm_id) cancel_alarm(reset_delay_alarm_id);
+        if (reset_delay_alarm_id)
+            cancel_alarm(reset_delay_alarm_id);
         reset_delay_alarm_id = add_alarm_in_us(400, reset_delay_complete, NULL, true);
     }
 }
 
-void dma_init(PIO pio, uint sm) {
+void dma_init(PIO pio, uint sm)
+{
     dma_claim_mask(DMA_CHANNELS_MASK);
 
     // main DMA channel outputs 8 word fragments, and then chains back to the chain channel
@@ -191,7 +143,7 @@ void dma_init(PIO pio, uint sm) {
                           &channel_config,
                           &pio->txf[sm],
                           NULL, // set by chain
-                          8, // 8 words for 8 bit planes
+                          8,    // 8 words for 8 bit planes
                           false);
 
     // chain channel sends single word pointer to start of fragment each time
@@ -199,8 +151,9 @@ void dma_init(PIO pio, uint sm) {
     dma_channel_configure(DMA_CB_CHANNEL,
                           &chain_config,
                           &dma_channel_hw_addr(
-                                  DMA_CHANNEL)->al3_read_addr_trig,  // ch DMA config (target "ring" buffer size 4) - this is (read_addr trigger)
-                          NULL, // set later
+                               DMA_CHANNEL)
+                               ->al3_read_addr_trig, // ch DMA config (target "ring" buffer size 4) - this is (read_addr trigger)
+                          NULL,                      // set later
                           1,
                           false);
 
@@ -209,38 +162,123 @@ void dma_init(PIO pio, uint sm) {
     irq_set_enabled(DMA_IRQ_0, true);
 }
 
-void output_strips_dma(value_bits_t *bits, uint value_length) {
-    for (uint i = 0; i < value_length; i++) {
-        fragment_start[i] = (uintptr_t) bits[i].planes; // MSB first
-        printBinary("Fragment start", fragment_start[i]);
+void output_strips_dma(value_bits_t *bits, uint value_length)
+{
+    for (uint i = 0; i < value_length; i++)
+    {
+        fragment_start[i] = (uintptr_t)bits[i].planes; // MSB first
     }
     fragment_start[value_length] = 0;
-    dma_channel_hw_addr(DMA_CB_CHANNEL)->al3_read_addr_trig = (uintptr_t) fragment_start;
+    dma_channel_hw_addr(DMA_CB_CHANNEL)->al3_read_addr_trig = (uintptr_t)fragment_start;
 }
 
-void show_pixels() {
-    printf("Show pixels\n");
-    sem_acquire_blocking(&reset_delay_complete_sem);
-    output_strips_dma(buffers[current_buffer], NUM_PIXELS * 4);
-    current_buffer ^= 1;   
+void print_current_buffer()
+{
+    printf("Current buffer:\n");
+
+    for (int i = 0; i < NUM_PIXELS * 3; i++)
+    {
+        printf("Pixel %d: \n", i);
+        for (int j = VALUE_PLANE_COUNT - 1; j >= 0; j--)
+        {
+            for (int k = 0; k < 32; k++)
+            {
+                printf("%d", (buffers[current_buffer][i].planes[j] >> k) & 1);
+            }
+            printf("\n");
+        }
+        printf("\n");
+    }
+    printf("\n");
 }
-int main() {
-    //set_sys_clock_48();
+
+// DMA the current bit plane to the PIO
+// We double buffer so we don't write to the memory while the DMA is reading from it
+void show_pixels()
+{
+    sem_acquire_blocking(&reset_delay_complete_sem);
+    output_strips_dma(buffers[current_buffer], NUM_PIXELS * 3);
+    // copy current buffer to next buffer
+    memcpy(buffers[current_buffer ^ 1], buffers[current_buffer], sizeof(buffers[0]));
+    // switch buffers
+    current_buffer ^= 1;
+}
+// Copy pixels from display to bitplanes using put_pixel
+void show_display()
+{
+    for (uint strip = 0; strip < STRIPS; strip++)
+    {
+        for (uint pixel = 0; pixel < NUM_PIXELS; pixel++)
+        {
+            put_pixel(strip, pixel, display[strip][pixel]);
+        }
+    }
+    show_pixels();
+}
+uint64_t timer_start()
+{
+    return time_us_64();
+}
+
+double timer_end(uint64_t start, const char *comment)
+{
+    uint64_t end_us = time_us_64();
+    // Calculate elapsed time in seconds
+    double elapsed = (double)(end_us - start);
+    printf("%s: %dµs\n", comment, (int)elapsed);
+    return elapsed;
+}
+
+uint64_t last_sparkle_time = 0;
+
+void run_sparkle()
+{
+    // Run every 20ms
+    if (time_us_64() - last_sparkle_time < 20000)
+    {
+        return;
+    }
+    else
+    {
+        last_sparkle_time = time_us_64();
+    }
+    for (int i = 0; i < STRIPS; i++)
+    {
+        for (int j = 0; j < NUM_PIXELS; j++)
+        {
+            uint32_t rgb = display[i][j];
+            // Randomly every 30th time reset the pixel to white
+            if (rand() % 100 == 0)
+            {
+                rgb = 0xffff00;
+            }
+            else
+            {
+                uint r = ((rgb >> 16) & 0xff) * 240 >> 8;
+                uint g = ((rgb >> 8) & 0xff) * 240 >> 8;
+                uint b = (rgb & 0xff) * 240 >> 8;
+                // Fade the pixel
+                rgb = (r << 16) | (g << 8) | b;
+            }
+            display[i][j] = rgb;
+        }
+    }
+}
+
+uint64_t my_timer;
+int main()
+{
+    memset(&display[0], 0, sizeof(display[0]));
+
     stdio_init_all();
-    sleep_ms(10000);
     printf("WS2812 parallel using pin %d\n", WS2812_PIN_BASE);
 
     PIO pio;
     uint sm;
     uint offset;
-   
-    for (uint pixel = 0; pixel < NUM_PIXELS; pixel++) {
-        printf("Pixel %d\n", pixel);
-        put_pixel(0, pixel, 0xff0000);
-        put_pixel(1, pixel, 0x00ff00);
-        put_pixel(2, pixel, 0x0000ff);
-        
-    }
+    memset(&buffers[0], 0, sizeof(buffers[0]));
+    memset(&buffers[1], 0, sizeof(buffers[1]));
+    print_current_buffer();
     // This will find a free pio and state machine for our program and load it for us
     // We use pio_claim_free_sm_and_add_program_for_gpio_range (for_gpio_range variant)
     // so we will get a PIO instance suitable for addressing gpios >= 32 if needed and supported by the hardware
@@ -251,14 +289,16 @@ int main() {
 
     sem_init(&reset_delay_complete_sem, 1, 1); // initially posted so we don't block first time
     dma_init(pio, sm);
-    memset(&buffers[0], 0, sizeof(buffers[0]));
-    memset(&buffers[1], 0, sizeof(buffers[1]));
 
-    int t = 0;
-    while (1) {
-        printf("Loop");
+    while (1)
+    {
+        // printf("Loop");
+        // print_current_buffer();
         show_pixels();
-        sleep_ms(1000);
+
+        my_timer = timer_start();
+        run_sparkle();
+        show_display();
     }
 
     // This will free resources and unload our program
