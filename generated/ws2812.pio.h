@@ -115,6 +115,8 @@ static inline void ws2812_parallel_program_init(PIO pio, uint sm, uint offset, u
     int cycles_per_bit = ws2812_parallel_T1 + ws2812_parallel_T2 + ws2812_parallel_T3;
     float div = clock_get_hz(clk_sys) / (freq * cycles_per_bit);
     sm_config_set_clkdiv(&c, div);
+    printf("div %d ", div);
+    //sm_config_set_clkdiv(&c,1.5d);
     pio_sm_init(pio, sm, offset, &c);
     pio_sm_set_enabled(pio, sm, true);
 }

@@ -52,6 +52,22 @@ static inline void ws2812_program_init(PIO pio, uint sm, uint offset, uint pin, 
 }
 %}
 
+//.program ws2812_parallel
+//
+//.define public T1 3
+//.define public T2 3
+//.define public T3 4
+//
+//.wrap_target
+//    mov x, null
+//    mov pins, null [6]
+//    out x, 32
+//    mov pins, !null [3]
+//    mov pins, x     [4]
+//    mov pins, null  
+//.wrap
+
+
 .program ws2812_parallel
 
 .define public T1 3
@@ -82,6 +98,8 @@ static inline void ws2812_parallel_program_init(PIO pio, uint sm, uint offset, u
     int cycles_per_bit = ws2812_parallel_T1 + ws2812_parallel_T2 + ws2812_parallel_T3;
     float div = clock_get_hz(clk_sys) / (freq * cycles_per_bit);
     sm_config_set_clkdiv(&c, div);
+    printf("div %d ", div);
+    //sm_config_set_clkdiv(&c,1.5d);
 
     pio_sm_init(pio, sm, offset, &c);
     pio_sm_set_enabled(pio, sm, true);
