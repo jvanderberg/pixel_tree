@@ -44,7 +44,7 @@
     "python.analysis.extraPaths": [
         "/Users/joshv/.vscode/extensions/joedevivo.vscode-circuitpython-0.2.0-darwin-arm64/boards/0x2E8A/0x000A",
         "/Users/joshv/.vscode/extensions/joedevivo.vscode-circuitpython-0.2.0-darwin-arm64/stubs",
-        "/Users/joshv/Library/Application Support/Code/User/globalStorage/joedevivo.vscode-circuitpython/bundle/20241205/adafruit-circuitpython-bundle-py-20241205/lib"
+        "/Users/joshv/Library/Application Support/Code/User/globalStorage/joedevivo.vscode-circuitpython/bundle/20250222/adafruit-circuitpython-bundle-py-20250222/lib"
     ],
     "circuitpython.board.version": null,
     "circuitpython.board.vid": "0x2E8A",
