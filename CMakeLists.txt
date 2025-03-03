@@ -5,7 +5,9 @@ cmake_minimum_required(VERSION 3.13)
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+option(LOCAL_BUILD "Build without Raspberry Pi Pico SDK" OFF)
 
+if (NOT LOCAL_BUILD)
 # Initialise pico_sdk from installed location
 # (note this can come from environment, CMake cache etc)
 
@@ -57,7 +59,7 @@ pico_enable_stdio_uart(pio_ws2812_parallel 0)
 pico_add_extra_outputs(pio_ws2812_parallel)
 pico_generate_pio_header(pio_ws2812_parallel ${CMAKE_CURRENT_LIST_DIR}/ws2812.pio OUTPUT_DIR ${CMAKE_CURRENT_LIST_DIR}/generated)
 
-target_sources(pio_ws2812_parallel PRIVATE ws2812_parallel.c)
+target_sources(pio_ws2812_parallel PRIVATE ws2812_parallel.c lib/utils.c lib/pixelblit.c)
 
 target_compile_definitions(pio_ws2812_parallel PRIVATE
         PIN_DBG1=3)
@@ -74,3 +76,10 @@ add_custom_command(OUTPUT ${CMAKE_CURRENT_LIST_DIR}/generated/ws2812.py
         COMMAND pioasm -o python ${CMAKE_CURRENT_LIST_DIR}/ws2812.pio ${CMAKE_CURRENT_LIST_DIR}/generated/ws2812.py
         VERBATIM)
 add_dependencies(pio_ws2812_parallel pio_ws2812_datasheet)
+else()
+    project(test C CXX ASM)
+    add_executable(test test.c lib/utils.c)
+
+    add_definitions(-DLOCAL_BUILD=1)
+
+endif()
