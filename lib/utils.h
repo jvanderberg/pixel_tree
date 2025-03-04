@@ -46,3 +46,7 @@ void rgb_to_hsl(uint32_t rgb, float *h, float *s, float *l);
 void rainbow(int raster_id);
 
 void init_rainbow(int raster_id);
+
+void start_timer();
+
+uint64_t stop_timer(const char *log_message);

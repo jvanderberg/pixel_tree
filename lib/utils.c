@@ -591,3 +591,23 @@ void show_raster_object_with_shift(int i, float shift_x, float shift_y)
         }
     }
 }
+
+static uint64_t start_time = 0;
+
+void start_timer()
+{
+    start_time = time_us_64();
+}
+
+uint64_t stop_timer(const char *log_message)
+{
+    if (start_time == 0)
+    {
+        printf("Error: Timer was not started.\n");
+        return 0;
+    }
+    uint64_t elapsed_time = (time_us_64() - start_time); // Convert to milliseconds
+    printf("%s: Elapsed time = %llu us\n", log_message, elapsed_time);
+    start_time = 0; // Reset timer
+    return elapsed_time;
+}

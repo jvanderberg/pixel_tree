@@ -6,6 +6,7 @@
 
 #include "lib/pixelblit.h"
 #include "lib/utils.h"
+#include "pico/multicore.h"
 
 void printBinary(const char *description, unsigned int number)
 {
@@ -354,10 +355,11 @@ FunctionSchedule schedule[] = {
 uint64_t my_timer;
 int main()
 {
+
     start_time = time_us_64();
     stdio_init_all();
-   
-
+    // sleep_ms(10000);
+    printf("Starting\n");
     initialize_dma();
     for (int pin = 0; pin <= 3; pin++)
     {
@@ -376,14 +378,15 @@ int main()
         //  fill_raster(board2, 0xff0000);
         //  rainbow(board2);
         // sleep_ms(16);
-        float shift_x = fmodf(time * 0.01f, 1.0f); // Move right over time
-        float shift_y = fmodf(time * 0.01f, 1.0f);
+        printf("Time: %d\n", time);
+        float shift_x = fmodf(time * 0.001f, 1.0f); // Move right over time
+        float shift_y = fmodf(time * 0.001f, 1.0f);
         show_raster_object_with_shift(board1, shift_x, shift_y);
         show_raster_object_with_shift(board2, shift_x, shift_y);
+
         show_pixels();
+
         time++;
     }
     remove_dma();
 }
-
-    

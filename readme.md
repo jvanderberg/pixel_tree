@@ -71,7 +71,7 @@ This only writes colors to an internal raster buffer. This buffer is persistent,
 
 show_raster_object(raster_id);
 
-Writes the raster to the PIO buffers
+Writes the raster to the PIO buffers. PIO buffers rotate the data in a way such that it can be streamed in parallel to the 16 GPIO pins. The PIO buffers are also persistent, and double buffered.
 
 `void show_pixels();`
 

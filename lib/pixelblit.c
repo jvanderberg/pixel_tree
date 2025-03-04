@@ -5,6 +5,8 @@
 #include "hardware/dma.h"
 #include "hardware/irq.h"
 #include "pico/sem.h"
+#include "pico/multicore.h"
+#include "utils.h"
 
 #include "pico/sem.h"
 
@@ -34,6 +36,7 @@ static PIO pio;
 static uint sm;
 static uint offset;
 static struct semaphore reset_delay_complete_sem;
+static struct semaphore sending_pixels_sem;
 
 static uintptr_t fragment_start[NUM_PIXELS * 3 + 1];
 
@@ -95,6 +98,7 @@ int64_t reset_delay_complete(__unused alarm_id_t id, __unused void *user_data)
 {
     reset_delay_alarm_id = 0;
     sem_release(&reset_delay_complete_sem);
+    printf("Reset delay complete\n");
     return 0;
 }
 
@@ -105,9 +109,13 @@ void __isr dma_complete_handler()
         // clear IRQ
         dma_hw->ints0 = DMA_CHANNEL_MASK;
         // when the dma is complete we start the reset delay timer
-        if (reset_delay_alarm_id)
-            cancel_alarm(reset_delay_alarm_id);
-        reset_delay_alarm_id = add_alarm_in_us(400, reset_delay_complete, NULL, true);
+        reset_delay_alarm_id = 0;
+        sleep_us(200);
+        sem_release(&reset_delay_complete_sem);
+        // printf("Reset delay complete\n");
+        //  if (reset_delay_alarm_id)
+        //      cancel_alarm(reset_delay_alarm_id);
+        //  reset_delay_alarm_id = add_alarm_in_us(400, reset_delay_complete, NULL, true);
     }
 }
 void dma_init(PIO pio, uint sm)
@@ -142,33 +150,6 @@ void dma_init(PIO pio, uint sm)
     irq_set_enabled(DMA_IRQ_0, true);
 }
 
-int initialize_dma()
-{
-
-    memset(&buffers[0], 0, sizeof(buffers[0]));
-    memset(&buffers[1], 0, sizeof(buffers[1]));
-    bool success = pio_claim_free_sm_and_add_program_for_gpio_range(&ws2812_parallel_program, &pio, &sm, &offset, WS2812_PIN_BASE, STRIPS, true);
-    hard_assert(success);
-
-    ws2812_parallel_program_init(pio, sm, offset, WS2812_PIN_BASE, STRIPS + WS2812_PIN_BASE, 800000);
-
-    sem_init(&reset_delay_complete_sem, 1, 1); // initially posted so we don't block first time
-    dma_init(pio, sm);
-}
-
-int remove_dma()
-{
-    pio_remove_program_and_unclaim_sm(&ws2812_parallel_program, pio, sm, offset);
-}
-// start of each value (+1 for NULL terminator)
-value_bits_t colors[NUM_PIXELS * 3];
-// double buffer the state of the pixel strip, since we update next version in parallel with DMAing out old version
-
-// posted when it is safe to output a new set of values
-static struct semaphore reset_delay_complete_sem;
-// alarm handle for handling delay
-alarm_id_t reset_delay_alarm_id;
-
 void output_strips_dma(value_bits_t *bits, uint value_length)
 {
     for (uint i = 0; i < value_length; i++)
@@ -181,12 +162,12 @@ void output_strips_dma(value_bits_t *bits, uint value_length)
 
 // DMA the current bit plane to the PIO
 // We double buffer so we don't write to the memory while the DMA is reading from it
-void show_pixels()
+void _show_pixels_internal()
 {
     for (uint board = 0; board < BOARDS; board++)
     {
-
         sem_acquire_blocking(&reset_delay_complete_sem);
+
         // Convert 'board' into a 4 bit integer and send its bits on gpio pins 0-3
         gpio_put(0, (board & 1));
         gpio_put(1, (board & 2) >> 1);
@@ -200,51 +181,53 @@ void show_pixels()
     memcpy(buffers[current_buffer ^ 1], buffers[current_buffer], sizeof(buffers[0]));
     // switch buffers
     current_buffer ^= 1;
+    stop_timer("DMA ended");
 }
 
-// // Set the pixel at the given index in the raster object
-// void set_pixel(uint raster_index, uint x, uint y, uint32_t color)
-// {
-//     raster_object_t *raster = raster_object[raster_index];
-//     uint index = y * raster->width + x;
-//     raster->raster[index] = color;
-// }
+void _initialize_dma()
+{
 
-// uint32_t fade_raster_rgb(uint32_t rgb, uint8_t fade)
-// {
-//     // Extract individual color channels
-//     uint8_t red = (rgb >> 16u) & 0xFF;  // Extract red (upper 8 bits)
-//     uint8_t green = (rgb >> 8u) & 0xFF; // Extract green (middle 8 bits)
-//     uint8_t blue = rgb & 0xFF;          // Extract blue (lower 8 bits)
+    dma_init(pio, sm);
 
-//     // Scale each channel using the fade factor
-//     red = (red * fade) >> 8u;
-//     green = (green * fade) >> 8u;
-//     blue = (blue * fade) >> 8u;
-//     // printf("Fade %d\n", fade);
+    while (1)
+    {
+        uint32_t task = multicore_fifo_pop_blocking(); // Wait for a command
+        if (task == 1)
+        {
+            _show_pixels_internal(); // Execute task when received
+        }
+    }
+}
 
-//     // Combine the faded color channels back into a 24-bit integer
-//     return (red << 16u) | (green << 8u) | blue;
-// }
+int initialize_dma()
+{
+    sem_init(&reset_delay_complete_sem, 1, 1); // initially posted so we don't block first time
+    // sem_init(&sending_pixels_sem, 1, 1);
+    memset(&buffers[0], 0, sizeof(buffers[0]));
+    memset(&buffers[1], 0, sizeof(buffers[1]));
+    bool success = pio_claim_free_sm_and_add_program_for_gpio_range(&ws2812_parallel_program, &pio, &sm, &offset, WS2812_PIN_BASE, STRIPS, true);
+    hard_assert(success);
 
-// // Fade the display by a certain amount
-// // amount is a value between 0 and 255, 255 is no fade
-// void fade_raster(uint raster_index, uint8_t amount)
-// {
-//     raster_object_t *raster = raster_object[raster_index];
-//     for (int i = 0; i < raster->height; i++)
-//     {
-//         for (int j = 0; j < raster->width; j++)
-//         {
-//             uint32_t rgb = raster->raster[i * raster->width + j];
-//             raster->raster[i * raster->width + j] = fade_raster_rgb(rgb, amount);
-//         }
-//     }
-// }
+    ws2812_parallel_program_init(pio, sm, offset, WS2812_PIN_BASE, STRIPS + WS2812_PIN_BASE, 800000);
+    multicore_reset_core1();
+    multicore_launch_core1(_initialize_dma);
+}
+int remove_dma()
+{
+    pio_remove_program_and_unclaim_sm(&ws2812_parallel_program, pio, sm, offset);
+}
+// start of each value (+1 for NULL terminator)
+value_bits_t colors[NUM_PIXELS * 3];
+// double buffer the state of the pixel strip, since we update next version in parallel with DMAing out old version
 
-// uint32_t get_pixel(uint raster_index, uint x, uint y)
-// {
-//     raster_object_t *raster = raster_object[raster_index];
-//     uint index = y * raster->width + x;
-//     return raster->raster[index];
-// }
+// posted when it is safe to output a new set of values
+static struct semaphore reset_delay_complete_sem;
+static struct semaphore sending_pixels_sem;
+
+// alarm handle for handling delay
+alarm_id_t reset_delay_alarm_id;
+
+void show_pixels()
+{
+    multicore_fifo_push_blocking(1);
+}

@@ -48,5 +48,10 @@
     ],
     "circuitpython.board.version": null,
     "circuitpython.board.vid": "0x2E8A",
-    "circuitpython.board.pid": "0x000A"
+    "circuitpython.board.pid": "0x000A",
+    "files.associations": {
+        "multicore.h": "c",
+        "utils.h": "c",
+        "cstdint": "cpp"
+    }
 }

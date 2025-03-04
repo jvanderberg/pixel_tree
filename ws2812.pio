@@ -74,6 +74,10 @@ static inline void ws2812_program_init(PIO pio, uint sm, uint offset, uint pin, 
 .define public T2 3
 .define public T3 4
 
+out x, 4
+out y, 28
+mov pins, x [20]
+
 .wrap_target
     out x, 32
     mov pins, !null [T1-1]

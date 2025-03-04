@@ -64,7 +64,7 @@ target_sources(pio_ws2812_parallel PRIVATE ws2812_parallel.c lib/utils.c lib/pix
 target_compile_definitions(pio_ws2812_parallel PRIVATE
         PIN_DBG1=3)
 
-target_link_libraries(pio_ws2812_parallel PRIVATE pico_stdlib hardware_pio hardware_dma)
+target_link_libraries(pio_ws2812_parallel PRIVATE pico_stdlib pico_multicore hardware_pio hardware_dma)
 pico_add_extra_outputs(pio_ws2812_parallel)
 
 # add url via pico_set_program_url
