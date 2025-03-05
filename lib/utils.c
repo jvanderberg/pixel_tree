@@ -209,7 +209,8 @@ void put_pixel(uint board, uint strip, uint pixel, uint32_t pixel_rgb)
     uint r = (pixel_rgb >> 16u) & 0xffu;
     uint v = pixel * 3;
 
-    uint32_t mask = 1 << (strip + 1); // The mask for the current strip
+    // Leave the first bit zero, as this is not an address line
+    uint32_t mask = 1 << (strip + 2); // The mask for the current strip
 
     uint color_array[3] = {r, g, b};
 

@@ -8,19 +8,19 @@
 #include "lib/utils.h"
 #include "pico/multicore.h"
 
-void printBinary(const char *description, unsigned int number)
-{
-    printf("%s: ", description); // Print the description
-    for (int i = 31; i >= 0; i--)
-    { // Iterate through the bits
-        printf("%c", (number & (1 << i)) ? '1' : '0');
-        if (i % 4 == 0 && i != 0)
-        { // Add a space every 4 bits
-            printf(" ");
-        }
-    }
-    printf("\n"); // Newline at the end
-}
+// void printBinary(const char *description, unsigned int number)
+// {
+//     printf("%s: ", description); // Print the description
+//     for (int i = 31; i >= 0; i--)
+//     { // Iterate through the bits
+//         printf("%c", (number & (1 << i)) ? '1' : '0');
+//         if (i % 4 == 0 && i != 0)
+//         { // Add a space every 4 bits
+//             printf(" ");
+//         }
+//     }
+//     printf("\n"); // Newline at the end
+// }
 
 // void print_current_buffer(uint board)
 // {
@@ -367,7 +367,7 @@ int main()
         gpio_set_dir(pin, GPIO_OUT); // Set as output
     }
     int board1 = create_raster(16, 100, 0, 0, 0, CLIP);
-    int board2 = create_raster(16, 100, 9, 0, 0, CLIP);
+    int board2 = create_raster(16, 100, 1, 0, 0, CLIP);
 
     init_rainbow(board1);
     init_rainbow(board2);
@@ -376,16 +376,19 @@ int main()
     {
         // rainbow(board1);
         //  fill_raster(board2, 0xff0000);
-        //  rainbow(board2);
-        // sleep_ms(16);
+        // rainbow(board2);
+        sleep_ms(16);
         printf("Time: %d\n", time);
-        float shift_x = fmodf(time * 0.001f, 1.0f); // Move right over time
-        float shift_y = fmodf(time * 0.001f, 1.0f);
+        float shift_x = fmodf(time * 0.005f, 1.0f); // Move right over time
+        float shift_y = fmodf(time * 0.005f, 1.0f);
+        printf("Shift x: %f, Shift y: %f\n", shift_x, shift_y);
         show_raster_object_with_shift(board1, shift_x, shift_y);
         show_raster_object_with_shift(board2, shift_x, shift_y);
+        printf("after show\n");
+        // run_scheduler(schedule, count_of(schedule));
 
         show_pixels();
-
+        printf("after show pixels\n");
         time++;
     }
     remove_dma();

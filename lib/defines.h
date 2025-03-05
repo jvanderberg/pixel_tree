@@ -2,7 +2,7 @@
 #define DEFINES_H
 #define NUM_PIXELS 100
 #define STRIPS 16
-#define BOARDS 10
+#define BOARDS 2
 #define MAX_RASTER_OBJECTS 100
 #ifdef LOCAL_BUILD
 typedef unsigned int uint32_t;

@@ -37,8 +37,10 @@ static uint sm;
 static uint offset;
 static struct semaphore reset_delay_complete_sem;
 static struct semaphore sending_pixels_sem;
+#define FRAGMENT_SIZE (BOARDS * (NUM_PIXELS * 3 + 1)) + 1
+static uintptr_t fragment_start[FRAGMENT_SIZE]; // 3 bit planes, plus terminator, plus 1 extra for the address
 
-static uintptr_t fragment_start[NUM_PIXELS * 3 + 1];
+// static uintptr_t fragment_start[NUM_PIXELS * 3 + 1];
 
 static const uint16_t ws2812_parallel_program_instructions[] = {
     //     .wrap_target
@@ -60,6 +62,20 @@ static const struct pio_program ws2812_parallel_program = {
 #endif
 };
 
+void printBinary(const char *description, unsigned int number)
+{
+    printf("%s: ", description); // Print the description
+    for (int i = 31; i >= 0; i--)
+    { // Iterate through the bits
+        printf("%c", (number & (1 << i)) ? '1' : '0');
+        if (i % 4 == 0 && i != 0)
+        { // Add a space every 4 bits
+            printf(" ");
+        }
+    }
+    printf("\n"); // Newline at the end
+}
+
 static inline pio_sm_config ws2812_parallel_program_get_default_config(uint offset)
 {
     pio_sm_config c = pio_get_default_sm_config();
@@ -78,6 +94,7 @@ static inline void ws2812_parallel_program_init(PIO pio, uint sm, uint offset, u
     pio_sm_config c = ws2812_parallel_program_get_default_config(offset);
     sm_config_set_out_shift(&c, true, true, 32);
     sm_config_set_out_pins(&c, pin_base, pin_count);
+    sm_config_set_set_pins(&c, 0, 4);
     sm_config_set_fifo_join(&c, PIO_FIFO_JOIN_TX);
     int cycles_per_bit = ws2812_parallel_T1 + ws2812_parallel_T2 + ws2812_parallel_T3;
     float div = clock_get_hz(clk_sys) / (freq * cycles_per_bit);
@@ -150,13 +167,16 @@ void dma_init(PIO pio, uint sm)
     irq_set_enabled(DMA_IRQ_0, true);
 }
 
+const uint32_t one = 1;
 void output_strips_dma(value_bits_t *bits, uint value_length)
 {
+    int position = 0;
+    fragment_start[position++] = (uintptr_t)one;
     for (uint i = 0; i < value_length; i++)
     {
-        fragment_start[i] = (uintptr_t)bits[i].planes; // MSB first
+        fragment_start[position++] = (uintptr_t)bits[i].planes; // MSB first
     }
-    fragment_start[value_length] = 0;
+    fragment_start[position] = 0;
     dma_channel_hw_addr(DMA_CB_CHANNEL)->al3_read_addr_trig = (uintptr_t)fragment_start;
 }
 
