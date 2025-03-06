@@ -52,6 +52,7 @@
     "files.associations": {
         "multicore.h": "c",
         "utils.h": "c",
-        "cstdint": "cpp"
+        "cstdint": "cpp",
+        "defines.h": "c"
     }
 }

@@ -1,8 +1,8 @@
 #ifndef DEFINES_H
 #define DEFINES_H
-#define NUM_PIXELS 100
+#define NUM_PIXELS 10
 #define STRIPS 16
-#define BOARDS 2
+#define BOARDS 8
 #define MAX_RASTER_OBJECTS 100
 #ifdef LOCAL_BUILD
 typedef unsigned int uint32_t;

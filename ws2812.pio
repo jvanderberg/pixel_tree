@@ -74,15 +74,18 @@ static inline void ws2812_program_init(PIO pio, uint sm, uint offset, uint pin, 
 .define public T2 3
 .define public T3 4
 
-out x, 4
-out y, 28
-mov pins, x [20]
-
 .wrap_target
-    out x, 32
+loop:
+    out x, 1 
+    jmp !x do_data
+    out exec, 16
+    out null, 15   
+    jmp loop
+do_data:
+    out x, 31
     mov pins, !null [T1-1]
     mov pins, x     [T2-1]
-    mov pins, null  [T3-2]
+    mov pins, null  
 .wrap
 
 % c-sdk {

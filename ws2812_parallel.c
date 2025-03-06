@@ -361,29 +361,29 @@ int main()
     // sleep_ms(10000);
     printf("Starting\n");
     initialize_dma();
-    for (int pin = 0; pin <= 3; pin++)
-    {
-        gpio_init(pin);
-        gpio_set_dir(pin, GPIO_OUT); // Set as output
-    }
+    // for (int pin = 0; pin <= 3; pin++)
+    // {
+    //     gpio_init(pin);
+    //     gpio_set_dir(pin, GPIO_OUT); // Set as output
+    // }
     int board1 = create_raster(16, 100, 0, 0, 0, CLIP);
-    int board2 = create_raster(16, 100, 1, 0, 0, CLIP);
+    // int board2 = create_raster(16, 100, 1, 0, 0, CLIP);
 
     init_rainbow(board1);
-    init_rainbow(board2);
+    // init_rainbow(board2);
     int time = 0;
     while (1)
     {
         // rainbow(board1);
         //  fill_raster(board2, 0xff0000);
         // rainbow(board2);
-        sleep_ms(16);
+        sleep_ms(100);
         printf("Time: %d\n", time);
         float shift_x = fmodf(time * 0.005f, 1.0f); // Move right over time
         float shift_y = fmodf(time * 0.005f, 1.0f);
         printf("Shift x: %f, Shift y: %f\n", shift_x, shift_y);
         show_raster_object_with_shift(board1, shift_x, shift_y);
-        show_raster_object_with_shift(board2, shift_x, shift_y);
+        // show_raster_object_with_shift(board2, shift_x, shift_y);
         printf("after show\n");
         // run_scheduler(schedule, count_of(schedule));
 

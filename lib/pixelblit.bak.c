@@ -16,7 +16,7 @@ typedef unsigned int uint;
 typedef unsigned short uint16_t;
 typedef unsigned char uint8_t;
 #endif
-#define WS2812_PIN_BASE 4
+#define WS2812_PIN_BASE 0
 
 // bit plane content dma channel
 #define DMA_CHANNEL 0
@@ -37,25 +37,29 @@ static uint sm;
 static uint offset;
 static struct semaphore reset_delay_complete_sem;
 static struct semaphore sending_pixels_sem;
-static value_bits_t dma_board_address[BOARDS];
-
+static uint32_t dma_board_address[BOARDS];
 #define FRAGMENT_SIZE (BOARDS * (NUM_PIXELS * 3 + 1)) + 1
 static uintptr_t fragment_start[FRAGMENT_SIZE]; // 3 bit planes, plus terminator, plus 1 extra for the address
 
-#define ws2812_parallel_wrap_target 0
-#define ws2812_parallel_wrap 8
-#define ws2812_parallel_pio_version 0
-
-#define ws2812_parallel_T1 3
-#define ws2812_parallel_T2 3
-#define ws2812_parallel_T3 4
-
+void printBinary(const char *description, unsigned int number)
+{
+    printf("%s: ", description); // Print the description
+    for (int i = 31; i >= 0; i--)
+    { // Iterate through the bits
+        printf("%c", (number & (1 << i)) ? '1' : '0');
+        if (i % 4 == 0 && i != 0)
+        { // Add a space every 4 bits
+            printf(" ");
+        }
+    }
+    printf("\n"); // Newline at the end
+}
 static const uint16_t ws2812_parallel_program_instructions[] = {
     //     .wrap_target
     0x6021, //  0: out    x, 1
     0x0025, //  1: jmp    !x, 5
-    0x60f0, //  2: out    exec, 16
-    0x606f, //  3: out    null, 15
+    0xe021, //  2: set    x, 1
+    0x603f, //  3: out    x, 31
     0x0000, //  4: jmp    0
     0x603f, //  5: out    x, 31
     0xa20b, //  6: mov    pins, !null            [2]
@@ -74,19 +78,6 @@ static const struct pio_program ws2812_parallel_program = {
     .used_gpio_ranges = 0x0
 #endif
 };
-void printBinary(const char *description, unsigned int number)
-{
-    printf("%s: ", description); // Print the description
-    for (int i = 31; i >= 0; i--)
-    { // Iterate through the bits
-        printf("%c", (number & (1 << i)) ? '1' : '0');
-        if (i % 4 == 0 && i != 0)
-        { // Add a space every 4 bits
-            printf(" ");
-        }
-    }
-    printf("\n"); // Newline at the end
-}
 
 static inline pio_sm_config ws2812_parallel_program_get_default_config(uint offset)
 {
@@ -98,17 +89,16 @@ static inline pio_sm_config ws2812_parallel_program_get_default_config(uint offs
 #include "hardware/clocks.h"
 static inline void ws2812_parallel_program_init(PIO pio, uint sm, uint offset, uint pin_base, uint pin_count, float freq)
 {
-    for (uint i = pin_base; i < pin_base + pin_count; i++)
+    for (uint i = pin_base; i < pin_base + pin_count + 4; i++)
     {
+        printf("Init pin %d\n", i);
         pio_gpio_init(pio, i);
     }
+    pio_sm_set_consecutive_pindirs(pio, sm, pin_base, pin_count + 4, true);
     pio_sm_config c = ws2812_parallel_program_get_default_config(offset);
     sm_config_set_out_shift(&c, true, true, 32);
-    // pio_sm_set_consecutive_pindirs(pio, sm, pin_base, pin_count, true);
-    pio_sm_set_consecutive_pindirs(pio, sm, pin_base, pin_count, true);
-
-    sm_config_set_set_pins(&c, 0, 4);
-    sm_config_set_out_pins(&c, 4, STRIPS);
+    sm_config_set_out_pins(&c, pin_base + 4, pin_count);
+    // sm_config_set_set_pins(&c, pin_base, 4);
     sm_config_set_fifo_join(&c, PIO_FIFO_JOIN_TX);
     int cycles_per_bit = ws2812_parallel_T1 + ws2812_parallel_T2 + ws2812_parallel_T3;
     float div = clock_get_hz(clk_sys) / (freq * cycles_per_bit);
@@ -141,7 +131,7 @@ void __isr dma_complete_handler()
         dma_hw->ints0 = DMA_CHANNEL_MASK;
         // when the dma is complete we start the reset delay timer
         reset_delay_alarm_id = 0;
-        sleep_us(100);
+        sleep_us(200);
         sem_release(&reset_delay_complete_sem);
         printf("Reset delay complete\n");
         //  if (reset_delay_alarm_id)
@@ -181,25 +171,26 @@ void dma_init(PIO pio, uint sm)
     irq_set_enabled(DMA_IRQ_0, true);
 }
 
-const uint32_t one = 1;
+// Send all the strings in a single DMA transfer
+// The fragments start with 4 words containing the board address, and no pixels
 void output_strips_dma()
 {
     printf("DMA started\n");
     uint32_t position = 0;
     for (uint32_t board = 0; board < BOARDS; board++)
     {
-        // printf("Board %d\n", board);
+        printf("Board %d\n", board);
         value_bits_t *bits = buffers[current_buffer][board];
 
         // set the first word of the chain channel to point to the start of the fragment
         // which encodes the board address
-        fragment_start[position++] = (uintptr_t)dma_board_address[board].planes;
-        // printBinary("a:", dma_board_address[board].planes[0]);
+        fragment_start[position++] = (uintptr_t)dma_board_address[board];
+        printBinary("a:", dma_board_address[board]);
 
         for (uint i = 0; i < NUM_PIXELS * 3; i++)
         {
             fragment_start[position++] = (uintptr_t)bits[i].planes; // MSB first
-            // printBinary("d:", bits[i].planes[0]);
+            printBinary("d:", bits[i].planes[0]);
         }
     }
     fragment_start[position] = 0;
@@ -212,37 +203,28 @@ void _show_pixels_internal()
 {
     // for (uint board = 0; board < BOARDS; board++)
     // {
+    printf("show_pixels_internal\n");
     sem_acquire_blocking(&reset_delay_complete_sem);
+    printf("After semaphore\n");
 
-    // Convert 'board' into a 4 bit integer and send its bits on gpio pins 0-3
+    // // Convert 'board' into a 4 bit integer and send its bits on gpio pins 0-3
     // gpio_put(0, (board & 1));
     // gpio_put(1, (board & 2) >> 1);
     // gpio_put(2, (board & 4) >> 2);
     // gpio_put(3, (board & 8) >> 3);
 
     output_strips_dma();
-    // }
+    //  }
 
     // copy current buffer to next buffer
     memcpy(buffers[current_buffer ^ 1], buffers[current_buffer], sizeof(buffers[0]));
+    printf("After memcopy\n");
     // switch buffers
     current_buffer ^= 1;
-    stop_timer("DMA ended");
 }
 
 void _initialize_dma()
 {
-
-    for (int board = 0; board < BOARDS; board++)
-    {
-        uint32_t address = 0x700 << 6 | board << 1 | 1;
-        for (int i = 0; i < 8; i++)
-        {
-            dma_board_address[board].planes[i] = address;
-        }
-
-        printBinary("Board address:", dma_board_address[board].planes[0]);
-    }
 
     dma_init(pio, sm);
 
@@ -251,6 +233,7 @@ void _initialize_dma()
         uint32_t task = multicore_fifo_pop_blocking(); // Wait for a command
         if (task == 1)
         {
+            printf("Received task\n");
             _show_pixels_internal(); // Execute task when received
         }
     }
@@ -258,14 +241,21 @@ void _initialize_dma()
 
 int initialize_dma()
 {
+    for (int board = 0; board < BOARDS; board++)
+    {
+
+        dma_board_address[board] = 0x7F8 << 6 | board << 1 | 1;
+        printBinary("Board address:", dma_board_address[board]);
+    }
+
     sem_init(&reset_delay_complete_sem, 1, 1); // initially posted so we don't block first time
     // sem_init(&sending_pixels_sem, 1, 1);
     memset(&buffers[0], 0, sizeof(buffers[0]));
     memset(&buffers[1], 0, sizeof(buffers[1]));
-    bool success = pio_claim_free_sm_and_add_program_for_gpio_range(&ws2812_parallel_program, &pio, &sm, &offset, 0, STRIPS + 4, false);
+    bool success = pio_claim_free_sm_and_add_program_for_gpio_range(&ws2812_parallel_program, &pio, &sm, &offset, WS2812_PIN_BASE, STRIPS + 4, true);
     hard_assert(success);
 
-    ws2812_parallel_program_init(pio, sm, offset, 0, STRIPS + 4, 800000);
+    ws2812_parallel_program_init(pio, sm, offset, WS2812_PIN_BASE, STRIPS, 800000);
     multicore_reset_core1();
     multicore_launch_core1(_initialize_dma);
 }
@@ -286,5 +276,6 @@ alarm_id_t reset_delay_alarm_id;
 
 void show_pixels()
 {
+    printf("Sending pixels\n");
     multicore_fifo_push_blocking(1);
 }

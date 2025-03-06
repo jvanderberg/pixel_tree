@@ -35,14 +35,18 @@ ws2812_parallel_T3 = 4
 
 @rp2.asm_pio()
 def ws2812_parallel():
-    out(x, 4)                             # 0
-    out(y, 28)                            # 1
-    mov(pins, x)                     [20] # 2
     wrap_target()
-    out(x, 32)                            # 3
-    mov(pins, invert(null))          [2]  # 4
-    mov(pins, x)                     [2]  # 5
-    mov(pins, null)                  [2]  # 6
+    label("0")
+    out(x, 1)                             # 0
+    jmp(not_x, "5")                       # 1
+    out(exec, 16)                         # 2
+    out(null, 15)                         # 3
+    jmp("0")                              # 4
+    label("5")
+    out(x, 31)                            # 5
+    mov(pins, invert(null))          [2]  # 6
+    mov(pins, x)                     [2]  # 7
+    mov(pins, null)                       # 8
     wrap()
 
 
