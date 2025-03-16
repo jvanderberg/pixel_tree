@@ -29,10 +29,11 @@ value_bits_t buffers[2][BOARDS][NUM_PIXELS * 3];
 
 int raster_object_count = -1;
 
-int create_raster(uint16_t height, uint16_t width, uint board, uint strip, uint pixel, WrapMode wrap)
+int create_raster(uint16_t height, uint16_t width, uint board, uint strip, uint start_pixel, WrapMode wrap)
 
 {
-
+    printf("Creating raster object\n");
+    printf("Height: %d, Width: %d\n", height, width);
     raster_object_count++;
     if (raster_object_count >= MAX_RASTER_OBJECTS)
     {
@@ -40,7 +41,8 @@ int create_raster(uint16_t height, uint16_t width, uint board, uint strip, uint 
         return -1;
     }
     printf("Creating raster object %d\n", raster_object_count);
-    uint offset = pixel;
+    uint offset = 0;
+    uint pixel = 0;
 
     raster_object_t *raster = malloc(sizeof(raster_object_t));
     printf("Height: %d, Width: %d\n", height, width);
@@ -87,8 +89,7 @@ int create_raster(uint16_t height, uint16_t width, uint board, uint strip, uint 
             raster->raster[i][j] = 0;
             raster->pixel_mapping[i][j].board = board;
             raster->pixel_mapping[i][j].strip = strip;
-            raster->pixel_mapping[i][j].pixel = offset;
-
+            raster->pixel_mapping[i][j].pixel = offset + start_pixel;
             if (j == 0)
             {
                 switch (wrap)
@@ -111,7 +112,7 @@ int create_raster(uint16_t height, uint16_t width, uint board, uint strip, uint 
                 // if the current wrap is odd, then use pixel, if it's even, move down from the next wrap width
                 if (current_wrap % 2 == 0)
                 {
-                    offset = (width * (current_wrap + 1)) - pixel - 1;
+                    offset = (width * (current_wrap)) - (pixel + 1 - (width * (current_wrap - 1)));
                 }
                 else
                 {
@@ -146,8 +147,9 @@ int create_raster(uint16_t height, uint16_t width, uint board, uint strip, uint 
             raster->raster[i][j] = 0;
             raster->pixel_mapping[i][j].board = board;
             raster->pixel_mapping[i][j].strip = strip;
-            raster->pixel_mapping[i][j].pixel = offset;
-
+            raster->pixel_mapping[i][j].pixel = offset + start_pixel;
+            printf("Board: %d, Strip: %d, Pixel: %d\n", board, strip, offset + start_pixel);
+            printf("Current wrap: %d\n", current_wrap);
             pixel++;
             if (pixel >= NUM_PIXELS)
             {
@@ -167,6 +169,7 @@ int create_raster(uint16_t height, uint16_t width, uint board, uint strip, uint 
         }
     }
     raster_object[raster_object_count] = raster;
+
     return raster_object_count;
 }
 
@@ -228,6 +231,7 @@ void put_pixel(uint board, uint strip, uint pixel, uint32_t pixel_rgb)
             // Calculate the bit we are setting.
             uint color_bit = (color >> (7 - bit)) & 1;
             // Calculate the new value in the bit plane.
+
             values[bit] = (color_bit) ? (value | (mask)) : (value & ~(mask));
         }
     }
@@ -536,6 +540,8 @@ static inline uint32_t bilinear_interpolate(uint32_t c00, uint32_t c10, uint32_t
     int w01 = ((uint32_t)(65536 - fx) * fy) >> 16;
     int w11 = ((uint32_t)fx * fy) >> 16;
 
+    // printf("Weights: %d \n", w00 + w11 + w01 + w10);
+
     // printf("Weights: %d %d %d %d %d %d\n", w00, w10, w01, w10, fx, fy);
 
     // Compute interpolated RGB values
@@ -550,7 +556,7 @@ static inline uint32_t bilinear_interpolate(uint32_t c00, uint32_t c10, uint32_t
 // Show a raster object with a shift in X and Y
 // The shift values are in the range [0, 1) and represent the fraction of the width/height to shift
 // this can be used to animate a raster object by moving it across the display in both directions
-void show_raster_object_with_shift(int i, float shift_x, float shift_y)
+void show_raster_object_with_shift(int i, uint64_t shift_x, uint64_t shift_y)
 {
     raster_object_t raster = get_raster(i);
     if (raster.raster == NULL || raster.pixel_mapping == NULL)
@@ -561,13 +567,14 @@ void show_raster_object_with_shift(int i, float shift_x, float shift_y)
     int width = raster.width;
     int height = raster.height;
     // Convert shift values to pixel space with 16-bit fixed-point precision
-    int dx = (int)(shift_x * width * 65536);
-    int dy = (int)(shift_y * height * 65536);
-
+    int dx = (int)(shift_x) % (65536 * width);
+    int dy = (int)(shift_y) % (65536 * height);
+    printf("Shift: %d %d\n", dx, dy);
     int shift_x_int = dx >> 16; // Integer pixel shift
     int shift_y_int = dy >> 16;
-    int fx = 0xFFFF - dx & 0xFFFF; // Fractional part (16-bit precision)
-    int fy = 0xFFFF - dy & 0xFFFF;
+    printf("Shift: %d %d\n", shift_x_int, shift_y_int);
+    uint16_t fx = (0xFFFF - dx & 0xFFFF) % 0xFFFF; // Fractional part (16-bit precision)
+    uint16_t fy = (0xFFFF - dy & 0xFFFF) % 0xFFFF;
 
     for (int y = 0; y < height; y++)
     {
@@ -577,6 +584,7 @@ void show_raster_object_with_shift(int i, float shift_x, float shift_y)
 
         for (int x = 0; x < width; x++)
         {
+
             // Compute wrapped X indices using modulo
             int x0 = (x - shift_x_int + width) % width;
             int x1 = (x0 + 1) % width;
@@ -595,12 +603,12 @@ void show_raster_object_with_shift(int i, float shift_x, float shift_y)
 
 static uint64_t start_time = 0;
 
-void start_timer()
+void start_timers()
 {
     start_time = time_us_64();
 }
 
-uint64_t stop_timer(const char *log_message)
+uint64_t stop_timers(const char *log_message)
 {
     if (start_time == 0)
     {

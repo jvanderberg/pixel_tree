@@ -43,7 +43,7 @@ static value_bits_t dma_board_address[BOARDS];
 static uintptr_t fragment_start[FRAGMENT_SIZE]; // 3 bit planes, plus terminator, plus 1 extra for the address
 
 #define ws2812_parallel_wrap_target 0
-#define ws2812_parallel_wrap 8
+#define ws2812_parallel_wrap 11
 #define ws2812_parallel_pio_version 0
 
 #define ws2812_parallel_T1 3
@@ -53,27 +53,33 @@ static uintptr_t fragment_start[FRAGMENT_SIZE]; // 3 bit planes, plus terminator
 static const uint16_t ws2812_parallel_program_instructions[] = {
     //     .wrap_target
     0x6021, //  0: out    x, 1
-    0x0025, //  1: jmp    !x, 5
+    0x0028, //  1: jmp    !x, 8
     0x60f0, //  2: out    exec, 16
     0x606f, //  3: out    null, 15
-    0x0000, //  4: jmp    0
-    0x603f, //  5: out    x, 31
-    0xa20b, //  6: mov    pins, !null            [2]
-    0xa201, //  7: mov    pins, x                [2]
-    0xa003, //  8: mov    pins, null
+    0xe026, //  4: set    x, 6
+    0x6060, //  5: out    null, 32
+    0x0045, //  6: jmp    x--, 5
+    0x0000, //  7: jmp    0
+    0x603f, //  8: out    x, 31
+    0xa20b, //  9: mov    pins, !null            [2]
+    0xa201, // 10: mov    pins, x                [2]
+    0xa003, // 11: mov    pins, null
             //     .wrap
 };
 
 #if !PICO_NO_HARDWARE
 static const struct pio_program ws2812_parallel_program = {
     .instructions = ws2812_parallel_program_instructions,
-    .length = 9,
+    .length = 12,
     .origin = -1,
     .pio_version = ws2812_parallel_pio_version,
 #if PICO_PIO_VERSION > 0
     .used_gpio_ranges = 0x0
 #endif
 };
+
+static uint64_t start_time = 0;
+
 void printBinary(const char *description, unsigned int number)
 {
     printf("%s: ", description); // Print the description
@@ -104,7 +110,6 @@ static inline void ws2812_parallel_program_init(PIO pio, uint sm, uint offset, u
     }
     pio_sm_config c = ws2812_parallel_program_get_default_config(offset);
     sm_config_set_out_shift(&c, true, true, 32);
-    // pio_sm_set_consecutive_pindirs(pio, sm, pin_base, pin_count, true);
     pio_sm_set_consecutive_pindirs(pio, sm, pin_base, pin_count, true);
 
     sm_config_set_set_pins(&c, 0, 4);
@@ -113,8 +118,6 @@ static inline void ws2812_parallel_program_init(PIO pio, uint sm, uint offset, u
     int cycles_per_bit = ws2812_parallel_T1 + ws2812_parallel_T2 + ws2812_parallel_T3;
     float div = clock_get_hz(clk_sys) / (freq * cycles_per_bit);
     sm_config_set_clkdiv(&c, div);
-    printf("div %d ", div);
-    // sm_config_set_clkdiv(&c,1.5d);
     pio_sm_init(pio, sm, offset, &c);
     pio_sm_set_enabled(pio, sm, true);
 }
@@ -129,7 +132,6 @@ int64_t reset_delay_complete(__unused alarm_id_t id, __unused void *user_data)
 {
     reset_delay_alarm_id = 0;
     sem_release(&reset_delay_complete_sem);
-    printf("Reset delay complete\n");
     return 0;
 }
 
@@ -141,12 +143,9 @@ void __isr dma_complete_handler()
         dma_hw->ints0 = DMA_CHANNEL_MASK;
         // when the dma is complete we start the reset delay timer
         reset_delay_alarm_id = 0;
-        sleep_us(100);
-        sem_release(&reset_delay_complete_sem);
-        printf("Reset delay complete\n");
-        //  if (reset_delay_alarm_id)
-        //      cancel_alarm(reset_delay_alarm_id);
-        //  reset_delay_alarm_id = add_alarm_in_us(400, reset_delay_complete, NULL, true);
+        if (reset_delay_alarm_id)
+            cancel_alarm(reset_delay_alarm_id);
+        reset_delay_alarm_id = add_alarm_in_us(100, reset_delay_complete, NULL, true);
     }
 }
 void dma_init(PIO pio, uint sm)
@@ -184,22 +183,18 @@ void dma_init(PIO pio, uint sm)
 const uint32_t one = 1;
 void output_strips_dma()
 {
-    printf("DMA started\n");
     uint32_t position = 0;
     for (uint32_t board = 0; board < BOARDS; board++)
     {
-        // printf("Board %d\n", board);
         value_bits_t *bits = buffers[current_buffer][board];
 
         // set the first word of the chain channel to point to the start of the fragment
         // which encodes the board address
         fragment_start[position++] = (uintptr_t)dma_board_address[board].planes;
-        // printBinary("a:", dma_board_address[board].planes[0]);
 
         for (uint i = 0; i < NUM_PIXELS * 3; i++)
         {
             fragment_start[position++] = (uintptr_t)bits[i].planes; // MSB first
-            // printBinary("d:", bits[i].planes[0]);
         }
     }
     fragment_start[position] = 0;
@@ -210,24 +205,10 @@ void output_strips_dma()
 // We double buffer so we don't write to the memory while the DMA is reading from it
 void _show_pixels_internal()
 {
-    // for (uint board = 0; board < BOARDS; board++)
-    // {
     sem_acquire_blocking(&reset_delay_complete_sem);
-
-    // Convert 'board' into a 4 bit integer and send its bits on gpio pins 0-3
-    // gpio_put(0, (board & 1));
-    // gpio_put(1, (board & 2) >> 1);
-    // gpio_put(2, (board & 4) >> 2);
-    // gpio_put(3, (board & 8) >> 3);
-
     output_strips_dma();
-    // }
-
-    // copy current buffer to next buffer
     memcpy(buffers[current_buffer ^ 1], buffers[current_buffer], sizeof(buffers[0]));
-    // switch buffers
     current_buffer ^= 1;
-    stop_timer("DMA ended");
 }
 
 void _initialize_dma()
@@ -235,6 +216,14 @@ void _initialize_dma()
 
     for (int board = 0; board < BOARDS; board++)
     {
+        // This is the PIO opcode for 'set pins, board'
+        // These are flagged as special instructions in the PIO program
+        // with the lowest order bit set to 1. The PIO program then loads the next 16
+        // bits and executes them as a set instruction.
+        //
+        // We load up 8 of them in the same structure as the RGB data, because the DMA is structured to send
+        // 8 words at a time. This results in small delay in the PIO program, as it reads past the 7 dummy
+        // words.
         uint32_t address = 0x700 << 6 | board << 1 | 1;
         for (int i = 0; i < 8; i++)
         {
@@ -246,14 +235,14 @@ void _initialize_dma()
 
     dma_init(pio, sm);
 
-    while (1)
-    {
-        uint32_t task = multicore_fifo_pop_blocking(); // Wait for a command
-        if (task == 1)
-        {
-            _show_pixels_internal(); // Execute task when received
-        }
-    }
+    // while (1)
+    // {
+    //     uint32_t task = multicore_fifo_pop_blocking(); // Wait for a command
+    //     if (task == 1)
+    //     {
+    //         _show_pixels_internal(); // Execute task when received
+    //     }
+    // }
 }
 
 int initialize_dma()
@@ -266,8 +255,8 @@ int initialize_dma()
     hard_assert(success);
 
     ws2812_parallel_program_init(pio, sm, offset, 0, STRIPS + 4, 800000);
-    multicore_reset_core1();
-    multicore_launch_core1(_initialize_dma);
+    // multicore_reset_core1();
+    _initialize_dma();
 }
 int remove_dma()
 {
@@ -287,4 +276,161 @@ alarm_id_t reset_delay_alarm_id;
 void show_pixels()
 {
     multicore_fifo_push_blocking(1);
+}
+
+uint count = 0;
+
+void show_pixels_with_refresh_rate(uint frequency)
+{
+    if (start_time == 0)
+    {
+        start_time = time_us_64();
+    }
+    uint ms = 1000000 / frequency;
+    uint64_t elapsed = time_us_64() - start_time;
+
+    if (count % 100 == 0)
+    {
+        printf("ms: %d %d %d\n", ms, elapsed, count);
+    }
+
+    count = count + 1;
+    // printf("ms: %d %d\n", ms, elapsed);
+
+    if (elapsed < ms)
+    {
+        sleep_us(ms - elapsed - 200);
+    }
+    else
+    {
+        // sleep_ms(1000);
+    }
+    elapsed = time_us_64() - start_time;
+    start_time = time_us_64();
+
+    _show_pixels_internal();
+    // multicore_fifo_push_blocking(1);
+}
+#define FIXED_SHIFT 10
+
+// uint64_t elapsed_time = 0;
+static uint64_t starting_time = 0;
+uint64_t countp = 0;
+uint64_t animate(float start, float pixel_per_second, int size)
+{
+    if (starting_time == 0)
+    {
+        printf("Reset starting time!!!!!");
+        starting_time = time_us_64();
+    }
+    uint64_t temp_starting_time = starting_time;
+    uint64_t int_pixel_per_second = ((uint64_t)(pixel_per_second * 65536));
+    uint64_t elapsed_time = time_us_64() - temp_starting_time + 31556952000000;
+    uint64_t int_shift = ((elapsed_time * int_pixel_per_second)) / 1000000;
+
+    // printf("Elapsed int time: %llu %llu\n", starting_time, int_shift);
+    // float shift = fmodf((float)int_shift / 65536 / 1000000, 1.0f);
+    // countp++;
+    // printf("Elapsed time: %llu %f\n", elapsed_time, shift);
+
+    printf("Elapsed time: %f %llu %llu\n", pixel_per_second, elapsed_time, int_shift);
+
+    return int_shift;
+}
+
+int16_t fixed_cos(int angle)
+{
+    return (int16_t)(cos(angle * M_PI / 180.0) * (1 << FIXED_SHIFT));
+}
+
+int16_t fixed_sin(int angle)
+{
+    return (int16_t)(sin(angle * M_PI / 180.0) * (1 << FIXED_SHIFT));
+}
+
+// Blends two colors with an alpha weight (fixed-point alpha)
+uint8_t blend_pixel(int alpha, uint8_t base, uint8_t color)
+{
+    return (uint8_t)(((1024 - alpha) * base + alpha * color) >> FIXED_SHIFT);
+}
+
+// Checks if a point is inside the rotated rectangle with rounded corners
+int point_in_rounded_rectangle(int px, int py, int cx, int cy, int w, int h, int cos_theta, int sin_theta, int radius)
+{
+    // Translate point to rectangle center
+    int dx = px - cx;
+    int dy = py - cy;
+
+    // Rotate point (fixed-point math)
+    int rx = ((dx * cos_theta) - (dy * sin_theta)) >> FIXED_SHIFT;
+    int ry = ((dx * sin_theta) + (dy * cos_theta)) >> FIXED_SHIFT;
+
+    // Check if inside rectangle bounds
+    if (abs(rx) <= (w / 2) && abs(ry) <= (h / 2))
+    {
+        return 1;
+    }
+
+    // Check if inside rounded corners (distance from corner)
+    int corner_x = (rx > 0 ? (w / 2) : -(w / 2));
+    int corner_y = (ry > 0 ? (h / 2) : -(h / 2));
+
+    int dist_sq = (rx - corner_x) * (rx - corner_x) + (ry - corner_y) * (ry - corner_y);
+    return dist_sq <= (radius * radius);
+}
+
+// Draws an anti-aliased rotated rectangle with rounded corners (fixed-point math)
+void draw_rectangle(int raster, int x, int y, int w, int h, int r, uint32_t c, int radius)
+{
+    raster_object_t ro = get_raster(raster);
+    // Compute half-width and half-height
+    int half_w = (w << (FIXED_SHIFT - 1)) >> FIXED_SHIFT;
+    int half_h = (h << (FIXED_SHIFT - 1)) >> FIXED_SHIFT;
+
+    int min_x = x - half_w;
+    int max_x = x + half_w;
+    int min_y = y - half_h;
+    int max_y = y + half_h;
+
+    // printf("Min x: %d, Max x: %d, Min y: %d, Max y: %d\n", min_x, max_x, min_y, max_y);
+    int samples = 4;                     // 2x2 Supersampling
+    int sub_pixel_step = 1024 / samples; // Fixed-point step
+
+    // Precompute cosine and sine (fixed-point)
+    int cos_theta = fixed_cos(r);
+    int sin_theta = fixed_sin(r);
+
+    for (int py = min_y; py <= max_y; py++)
+    {
+        for (int px = min_x; px <= max_x; px++)
+        {
+            int coverage = 0;
+
+            // Supersampling loop
+            for (int sy = 0; sy < samples; sy++)
+            {
+                for (int sx = 0; sx < samples; sx++)
+                {
+                    int sample_x = (px << FIXED_SHIFT) + ((sx * sub_pixel_step) + (sub_pixel_step / 2));
+                    int sample_y = (py << FIXED_SHIFT) + ((sy * sub_pixel_step) + (sub_pixel_step / 2));
+
+                    if (point_in_rounded_rectangle(sample_x >> FIXED_SHIFT, sample_y >> FIXED_SHIFT, x, y, w, h, cos_theta, sin_theta, radius))
+                    {
+                        coverage += 1;
+                    }
+                }
+            }
+
+            coverage = (coverage * 1024) / (samples * samples); // Normalize to 1024
+
+            if (coverage > 0)
+            {
+                int clamped_x = (px < 0) ? 0 : (px >= ro.width ? ro.width - 1 : px);
+                int clamped_y = (py < 0) ? 0 : (py >= ro.height ? ro.height - 1 : py);
+
+                // Blend color based on coverage
+                ro.raster[clamped_y][clamped_x] = c;
+            }
+        }
+    }
 }

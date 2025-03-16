@@ -30,7 +30,7 @@ raster_object_t get_raster(uint raster_id);
 void show_all_raster_objects();
 
 void show_raster_object(int i);
-void show_raster_object_with_shift(int i, float shift_x, float shift_y);
+void show_raster_object_with_shift(int i, uint64_t shift_x, uint64_t shift_y);
 
 void draw_pixel(int raster_id, int x, int y, uint32_t color);
 
@@ -47,6 +47,6 @@ void rainbow(int raster_id);
 
 void init_rainbow(int raster_id);
 
-void start_timer();
+void start_timers();
 
-uint64_t stop_timer(const char *log_message);
+uint64_t stop_timers(const char *log_message);

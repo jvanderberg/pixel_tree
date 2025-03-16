@@ -69,7 +69,7 @@ static inline void ws2812_program_init(PIO pio, uint sm, uint offset, uint pin, 
 // --------------- //
 
 #define ws2812_parallel_wrap_target 0
-#define ws2812_parallel_wrap 8
+#define ws2812_parallel_wrap 11
 #define ws2812_parallel_pio_version 0
 
 #define ws2812_parallel_T1 3
@@ -79,21 +79,24 @@ static inline void ws2812_program_init(PIO pio, uint sm, uint offset, uint pin, 
 static const uint16_t ws2812_parallel_program_instructions[] = {
             //     .wrap_target
     0x6021, //  0: out    x, 1                       
-    0x0025, //  1: jmp    !x, 5                      
+    0x0028, //  1: jmp    !x, 8                      
     0x60f0, //  2: out    exec, 16                   
     0x606f, //  3: out    null, 15                   
-    0x0000, //  4: jmp    0                          
-    0x603f, //  5: out    x, 31                      
-    0xa20b, //  6: mov    pins, !null            [2] 
-    0xa201, //  7: mov    pins, x                [2] 
-    0xa003, //  8: mov    pins, null                 
+    0xe026, //  4: set    x, 6                       
+    0x6060, //  5: out    null, 32                   
+    0x0045, //  6: jmp    x--, 5                     
+    0x0000, //  7: jmp    0                          
+    0x603f, //  8: out    x, 31                      
+    0xa20b, //  9: mov    pins, !null            [2] 
+    0xa201, // 10: mov    pins, x                [2] 
+    0xa003, // 11: mov    pins, null                 
             //     .wrap
 };
 
 #if !PICO_NO_HARDWARE
 static const struct pio_program ws2812_parallel_program = {
     .instructions = ws2812_parallel_program_instructions,
-    .length = 9,
+    .length = 12,
     .origin = -1,
     .pio_version = ws2812_parallel_pio_version,
 #if PICO_PIO_VERSION > 0

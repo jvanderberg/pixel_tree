@@ -79,7 +79,11 @@ loop:
     out x, 1 
     jmp !x do_data
     out exec, 16
-    out null, 15   
+    out null, 15
+    set x, 6
+bleed: // bleed down the extra 7 words of redundant sets
+    out null, 32
+    jmp x-- bleed
     jmp loop
 do_data:
     out x, 31

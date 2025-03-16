@@ -38,15 +38,19 @@ def ws2812_parallel():
     wrap_target()
     label("0")
     out(x, 1)                             # 0
-    jmp(not_x, "5")                       # 1
+    jmp(not_x, "8")                       # 1
     out(exec, 16)                         # 2
     out(null, 15)                         # 3
-    jmp("0")                              # 4
+    set(x, 6)                             # 4
     label("5")
-    out(x, 31)                            # 5
-    mov(pins, invert(null))          [2]  # 6
-    mov(pins, x)                     [2]  # 7
-    mov(pins, null)                       # 8
+    out(null, 32)                         # 5
+    jmp(x_dec, "5")                       # 6
+    jmp("0")                              # 7
+    label("8")
+    out(x, 31)                            # 8
+    mov(pins, invert(null))          [2]  # 9
+    mov(pins, x)                     [2]  # 10
+    mov(pins, null)                       # 11
     wrap()
 
 

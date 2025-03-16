@@ -358,38 +358,39 @@ int main()
 
     start_time = time_us_64();
     stdio_init_all();
-    // sleep_ms(10000);
+
     printf("Starting\n");
     initialize_dma();
-    // for (int pin = 0; pin <= 3; pin++)
-    // {
-    //     gpio_init(pin);
-    //     gpio_set_dir(pin, GPIO_OUT); // Set as output
-    // }
-    int board1 = create_raster(16, 100, 0, 0, 0, CLIP);
-    // int board2 = create_raster(16, 100, 1, 0, 0, CLIP);
 
-    init_rainbow(board1);
-    // init_rainbow(board2);
-    int time = 0;
+    int board1 = create_raster(8, 10, 0, 0, 0, CLIP);
+    int board2 = create_raster(9, 12, 1, 8, 14, WRAP);
+
+    // init_rainbow(board1);
+    //    init_rainbow(board2);
+    //   draw_rectangle(board1, 3, 3, 4, 4, 9, 0xff, 2);
+    // fill_raster(board2, 0xFFff00);
+
     while (1)
     {
-        // rainbow(board1);
-        //  fill_raster(board2, 0xff0000);
-        // rainbow(board2);
-        sleep_ms(100);
-        printf("Time: %d\n", time);
-        float shift_x = fmodf(time * 0.005f, 1.0f); // Move right over time
-        float shift_y = fmodf(time * 0.005f, 1.0f);
-        printf("Shift x: %f, Shift y: %f\n", shift_x, shift_y);
-        show_raster_object_with_shift(board1, shift_x, shift_y);
-        // show_raster_object_with_shift(board2, shift_x, shift_y);
-        printf("after show\n");
-        // run_scheduler(schedule, count_of(schedule));
+        draw_rectangle(board1, 2, 2, 2, 2, 0, 0xff, 0);
+        draw_rectangle(board2, 2, 2, 2, 2, 0, 0xff0000, 0);
 
-        show_pixels();
-        printf("after show pixels\n");
-        time++;
+        uint64_t shift_x = animate(0, 10, get_raster(board1).width);
+        uint64_t shift_y = animate(5, 1, get_raster(board1).height);
+
+        uint64_t shift_x_2 = animate(5, 0.1, get_raster(board2).width);
+        uint64_t shift_y_2 = animate(5, 1, get_raster(board2).height);
+        // animate(0, 1, 20);
+        //  float shift_y = animate(start, 1, 16);
+
+        // show_raster_object(board1);
+        //  show_raster_object(board1);
+
+        show_raster_object_with_shift(board1, shift_x, shift_y);
+        // show_raster_object(board2);
+        show_raster_object_with_shift(board2, shift_x_2, shift_y_2);
+
+        show_pixels_with_refresh_rate(30);
     }
     remove_dma();
 }
