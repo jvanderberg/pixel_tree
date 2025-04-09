@@ -365,20 +365,20 @@ int main()
     int board1 = create_raster(8, 10, 0, 0, 0, CLIP);
     int board2 = create_raster(9, 12, 1, 8, 14, WRAP);
 
-    // init_rainbow(board1);
-    //    init_rainbow(board2);
+    init_rainbow(board1);
+    init_rainbow(board2);
     //   draw_rectangle(board1, 3, 3, 4, 4, 9, 0xff, 2);
     // fill_raster(board2, 0xFFff00);
 
     while (1)
     {
-        draw_rectangle(board1, 2, 2, 2, 2, 0, 0xff, 0);
-        draw_rectangle(board2, 2, 2, 2, 2, 0, 0xff0000, 0);
+        // draw_rectangle(board1, 2, 2, 2, 2, 0, 0xff, 0);
+        // draw_rectangle(board2, 2, 2, 2, 2, 0, 0xff0000, 0);
 
-        uint64_t shift_x = animate(0, 10, get_raster(board1).width);
+        uint64_t shift_x = animate(0, 1, get_raster(board1).width);
         uint64_t shift_y = animate(5, 1, get_raster(board1).height);
 
-        uint64_t shift_x_2 = animate(5, 0.1, get_raster(board2).width);
+        uint64_t shift_x_2 = animate(5, 1, get_raster(board2).width);
         uint64_t shift_y_2 = animate(5, 1, get_raster(board2).height);
         // animate(0, 1, 20);
         //  float shift_y = animate(start, 1, 16);
@@ -390,7 +390,7 @@ int main()
         // show_raster_object(board2);
         show_raster_object_with_shift(board2, shift_x_2, shift_y_2);
 
-        show_pixels_with_refresh_rate(30);
+        show_pixels_with_refresh_rate(120);
     }
     remove_dma();
 }

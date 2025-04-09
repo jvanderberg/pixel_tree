@@ -1,16 +1,20 @@
 #ifndef DEFINES_H
 #define DEFINES_H
-#define NUM_PIXELS 140
-#define STRIPS 12
-#define BOARDS 2
+
 #define MAX_RASTER_OBJECTS 100
 #ifdef LOCAL_BUILD
 typedef unsigned int uint32_t;
 typedef unsigned int uint;
 typedef unsigned short uint16_t;
 typedef unsigned char uint8_t;
+#define NUM_PIXELS 75
+#define STRIPS 16
+#define BOARDS 2
 #endif
 #ifndef LOCAL_BUILD
+#define NUM_PIXELS 140
+#define STRIPS 12
+#define BOARDS 2
 #include "hardware/pio.h"
 #include "hardware/dma.h"
 #include "hardware/irq.h"

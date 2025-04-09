@@ -5,11 +5,16 @@
 #include <math.h>
 #include <float.h>
 #ifdef LOCAL_BUILD
+
 typedef unsigned int uint32_t;
 typedef unsigned int uint;
 typedef unsigned short uint16_t;
 typedef unsigned char uint8_t;
 
+uint64_t time_us_64()
+{
+    return 0;
+}
 void show_pixels()
 {
     // stub
@@ -513,7 +518,7 @@ void init_rainbow(int raster_id)
             {
 
                 h = (float)j / raster.width;
-                h = h + (float)i / raster.height;
+                // h = h + (float)i / raster.height;
                 if (h > 1)
                 {
                     h -= 1;

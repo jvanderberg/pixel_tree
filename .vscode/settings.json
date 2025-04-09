@@ -53,6 +53,7 @@
         "multicore.h": "c",
         "utils.h": "c",
         "cstdint": "cpp",
-        "defines.h": "c"
+        "defines.h": "c",
+        "timer.h": "c"
     }
 }
