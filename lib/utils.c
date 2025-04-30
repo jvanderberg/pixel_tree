@@ -1,29 +1,17 @@
-#include "defines.h"
-#include <stdlib.h> // Required for malloc
 #include <stdio.h>
-#include "utils.h"
+#include <stdlib.h>
 #include <math.h>
 #include <float.h>
 #include <string.h>
+#include "defines.h"
+#include "types.h"
+#include "libpixelblit.h"
+#include "utils.h"
 #ifdef LOCAL_BUILD
-
 typedef unsigned int uint32_t;
 typedef unsigned int uint;
 typedef unsigned short uint16_t;
 typedef unsigned char uint8_t;
-
-uint64_t time_us_64()
-{
-    return 0;
-}
-void show_pixels()
-{
-    // stub
-}
-#endif
-#ifndef LOCAL_BUILD
-#include "pixelblit.h"
-#include "utils.h"
 #endif
 
 uint current_buffer = 0;

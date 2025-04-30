@@ -2,13 +2,9 @@
 #define UTILS_H
 
 #include "defines.h"
-#ifdef LOCAL_BUILD
-typedef unsigned int uint32_t;
-typedef unsigned int uint;
-typedef unsigned short uint16_t;
-typedef unsigned char uint8_t;
-#endif
-#include "pixelblit.h"
+#include "types.h"
+#include "libpixelblit.h"
+
 // Create a direct raster object. starting at the given board, strip, and pixel
 // This is useful for creating a raster object that is a subset of the display
 // This simplistically just tries to map a width x height grid, just advancing first the pixel,
@@ -25,13 +21,6 @@ typedef unsigned char uint8_t;
 // Boards are assumed to have 16 strips and NUM_PIXELS pixels on each strip
 // If this isn't true, just ensure that NUM_PIXELS is the number of pixels on the longest strip
 //
-
-typedef struct
-{
-    uint32_t a0;
-    uint32_t a1;
-    uint32_t a2;
-} Bins_t;
 
 int create_raster(uint16_t height, uint16_t width, uint board, uint strip, uint pixel, WrapMode wrap);
 

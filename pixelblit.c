@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "lib/pixelblit.h"
+#include "lib/libpixelblit.h"
 #include "lib/utils.h"
 #include "pico/multicore.h"
 #include "ir_control.h"

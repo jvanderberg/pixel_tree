@@ -1,5 +1,5 @@
+#include "libpixelblit.h"
 #include "defines.h"
-#include "pixelblit.h"
 #include <stdio.h>
 #include "hardware/pio.h"
 #include "hardware/dma.h"

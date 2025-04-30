@@ -30,56 +30,56 @@ set(PICO_BOARD pico_w CACHE STRING "Board type")
 # Pull in Raspberry Pi Pico SDK (must be before project)
 include(pico_sdk_import.cmake)
 
-project(pio_ws2812_parallel C CXX ASM)
+project(pixelblit C CXX ASM)
 
 # Initialise the Raspberry Pi Pico SDK
 pico_sdk_init()
 
-# Add executable. Default name is the project name, version 0.1
-
-#add_executable(pio_ws2812)
-
 file(MAKE_DIRECTORY ${CMAKE_CURRENT_LIST_DIR}/generated)
 
-# generate the header file into the source tree as it is included in the RP2040 datasheet
-#pico_generate_pio_header(pio_ws2812 ${CMAKE_CURRENT_LIST_DIR}/ws2812.pio OUTPUT_DIR ${CMAKE_CURRENT_LIST_DIR}/generated)
+# Create the executable
+add_executable(pixelblit)
 
-#target_sources(pio_ws2812 PRIVATE ws2812.c)
-
-#target_link_libraries(pio_ws2812 PRIVATE pico_stdlib hardware_pio)
-#pico_add_extra_outputs(pio_ws2812)
-
-# add url via pico_set_program_url
-
-add_executable(pio_ws2812_parallel)
 # Enable USB serial output
-pico_enable_stdio_usb(pio_ws2812_parallel 1)
-pico_enable_stdio_uart(pio_ws2812_parallel 0)
+pico_enable_stdio_usb(pixelblit 1)
+pico_enable_stdio_uart(pixelblit 0)
 
-pico_add_extra_outputs(pio_ws2812_parallel)
-pico_generate_pio_header(pio_ws2812_parallel ${CMAKE_CURRENT_LIST_DIR}/ws2812.pio OUTPUT_DIR ${CMAKE_CURRENT_LIST_DIR}/generated)
+# Generate PIO header
+pico_generate_pio_header(pixelblit ${CMAKE_CURRENT_LIST_DIR}/ws2812.pio OUTPUT_DIR ${CMAKE_CURRENT_LIST_DIR}/generated)
 
-target_sources(pio_ws2812_parallel PRIVATE ws2812_parallel.c lib/utils.c lib/pixelblit.c ir_control.c)
+# Add source files
+target_sources(pixelblit PRIVATE 
+    pixelblit.c 
+    lib/utils.c 
+    lib/libpixelblit.c 
+    ir_control.c
+)
 
-target_compile_definitions(pio_ws2812_parallel PRIVATE
-        PIN_DBG1=3)
+# Add compile definitions
+target_compile_definitions(pixelblit PRIVATE
+    PIN_DBG1=3
+)
 
-target_link_libraries(pio_ws2812_parallel PRIVATE pico_stdlib pico_multicore hardware_pio hardware_dma)
-pico_add_extra_outputs(pio_ws2812_parallel)
-
-# add url via pico_set_program_url
+# Link libraries
+target_link_libraries(pixelblit PRIVATE 
+    pico_stdlib 
+    pico_multicore 
+    hardware_pio 
+    hardware_dma
+)# Add extra outputs
+pico_add_extra_outputs(pixelblit)
 
 # Additionally generate python and hex pioasm outputs for inclusion in the RP2040 datasheet
 add_custom_target(pio_ws2812_datasheet DEPENDS ${CMAKE_CURRENT_LIST_DIR}/generated/ws2812.py)
 add_custom_command(OUTPUT ${CMAKE_CURRENT_LIST_DIR}/generated/ws2812.py
-        DEPENDS ${CMAKE_CURRENT_LIST_DIR}/ws2812.pio
-        COMMAND pioasm -o python ${CMAKE_CURRENT_LIST_DIR}/ws2812.pio ${CMAKE_CURRENT_LIST_DIR}/generated/ws2812.py
-        VERBATIM)
-add_dependencies(pio_ws2812_parallel pio_ws2812_datasheet)
+    DEPENDS ${CMAKE_CURRENT_LIST_DIR}/ws2812.pio
+    COMMAND pioasm -o python ${CMAKE_CURRENT_LIST_DIR}/ws2812.pio ${CMAKE_CURRENT_LIST_DIR}/generated/ws2812.py
+    VERBATIM)
+add_dependencies(pixelblit pio_ws2812_datasheet)
 else()
     project(test C CXX ASM)
     add_executable(test test.c lib/utils.c)
-
     add_definitions(-DLOCAL_BUILD=1)
-
 endif()
+
+
