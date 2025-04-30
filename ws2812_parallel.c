@@ -7,6 +7,7 @@
 #include "lib/pixelblit.h"
 #include "lib/utils.h"
 #include "pico/multicore.h"
+#include "ir_control.h"
 
 // void printBinary(const char *description, unsigned int number)
 // {
@@ -355,41 +356,58 @@ FunctionSchedule schedule[] = {
 uint64_t my_timer;
 int main()
 {
-
     start_time = time_us_64();
     stdio_init_all();
 
     printf("Starting\n");
     initialize_dma();
 
-    int board1 = create_raster(8, 10, 0, 0, 0, CLIP);
+    // Initialize IR control
+    ir_init(IR_PIN);
+
+    // sleep_ms(10000);
+    int raster1 = create_raster(8, 10, 0, 0, 0, CLIP);
+    int raster2 = create_raster(8, 10, 0, 0, 0, CLIP);
+
     int board2 = create_raster(9, 12, 1, 8, 14, WRAP);
 
-    init_rainbow(board1);
-    init_rainbow(board2);
-    //   draw_rectangle(board1, 3, 3, 4, 4, 9, 0xff, 2);
-    // fill_raster(board2, 0xFFff00);
+    init_rainbow(raster1);
+    // init_rainbow(board2);
+    //    draw_rectangle(board1, 3, 3, 4, 4, 9, 0xff, 2);
+    //  fill_raster(board1, 0xFFff00);
 
+    uint8_t ir_code;
     while (1)
     {
-        // draw_rectangle(board1, 2, 2, 2, 2, 0, 0xff, 0);
-        // draw_rectangle(board2, 2, 2, 2, 2, 0, 0xff0000, 0);
+        // Check for IR commands
+        if (ir_get_next_command(&ir_code))
+        {
+            ir_handle_command(ir_code);
+        }
 
-        uint64_t shift_x = animate(0, 1, get_raster(board1).width);
-        uint64_t shift_y = animate(5, 1, get_raster(board1).height);
+        // draw_rectangle(raster1, 2, 2, 2, 2, 0, 0xff, 0);
+        // draw_rectangle(raster2, 2, 2, 2, 2, 0, 0xff0000, 0);
+        raster_object_t ro = get_raster(raster1);
+        // ro.raster[0][0] = 0x00ff00;
+        uint64_t shift_x = animate(0, 3, get_raster(raster1).width);
+        uint64_t shift_y = animate(5, 0, get_raster(raster1).height);
 
-        uint64_t shift_x_2 = animate(5, 1, get_raster(board2).width);
-        uint64_t shift_y_2 = animate(5, 1, get_raster(board2).height);
+        uint64_t shift_x_2 = animate(5, 1, get_raster(raster1).width);
+        uint64_t shift_y_2 = animate(5, 2, get_raster(raster1).height);
         // animate(0, 1, 20);
         //  float shift_y = animate(start, 1, 16);
 
         // show_raster_object(board1);
-        //  show_raster_object(board1);
+        // show_raster_object(board1);
 
-        show_raster_object_with_shift(board1, shift_x, shift_y);
+        // show_raster_object_with_shift(board1, shift_x, shift_y);
         // show_raster_object(board2);
-        show_raster_object_with_shift(board2, shift_x_2, shift_y_2);
-
+        // show_raster_object_with_shift(board2, shift_x_2, shift_y_2);
+        int a[] = {raster1, raster2};
+        uint64_t shiftsx[] = {shift_x, shift_x_2};
+        uint64_t shiftsy[] = {shift_y, shift_y_2};
+        // show_raster_objects_with_shift(2, a, shiftsx, shiftsy);
+        show_raster_object_with_shift(raster1, shift_x, shift_y);
         show_pixels_with_refresh_rate(120);
     }
     remove_dma();

@@ -1,3 +1,6 @@
+#ifndef UTILS_H
+#define UTILS_H
+
 #include "defines.h"
 #ifdef LOCAL_BUILD
 typedef unsigned int uint32_t;
@@ -23,14 +26,25 @@ typedef unsigned char uint8_t;
 // If this isn't true, just ensure that NUM_PIXELS is the number of pixels on the longest strip
 //
 
+typedef struct
+{
+    uint32_t a0;
+    uint32_t a1;
+    uint32_t a2;
+} Bins_t;
+
 int create_raster(uint16_t height, uint16_t width, uint board, uint strip, uint pixel, WrapMode wrap);
+
+Bins_t bin_pixel(uint8_t frac_offset);
 
 raster_object_t get_raster(uint raster_id);
 
 void show_all_raster_objects();
 
 void show_raster_object(int i);
+void show_raster_objects_with_shift(int count, int i[], uint64_t shift_x[], uint64_t shift_y[]);
 void show_raster_object_with_shift(int i, uint64_t shift_x, uint64_t shift_y);
+void show_raster_object_with_shift_internal(uint32_t *buffer, int i, uint64_t shift_x, uint64_t shift_y);
 
 void draw_pixel(int raster_id, int x, int y, uint32_t color);
 
@@ -46,7 +60,9 @@ void rgb_to_hsl(uint32_t rgb, float *h, float *s, float *l);
 void rainbow(int raster_id);
 
 void init_rainbow(int raster_id);
+uint64_t stop_timers(const char *log_message);
 
+#endif // UTILS_H
 void start_timers();
 
 uint64_t stop_timers(const char *log_message);

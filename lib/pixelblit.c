@@ -325,7 +325,7 @@ uint64_t animate(float start, float pixel_per_second, int size)
     }
     uint64_t temp_starting_time = starting_time;
     uint64_t int_pixel_per_second = ((uint64_t)(pixel_per_second * 65536));
-    uint64_t elapsed_time = time_us_64() - temp_starting_time + 31556952000000;
+    uint64_t elapsed_time = time_us_64() - temp_starting_time; // + 31556952000000;
     uint64_t int_shift = ((elapsed_time * int_pixel_per_second)) / 1000000;
 
     // printf("Elapsed int time: %llu %llu\n", starting_time, int_shift);
@@ -333,7 +333,7 @@ uint64_t animate(float start, float pixel_per_second, int size)
     // countp++;
     // printf("Elapsed time: %llu %f\n", elapsed_time, shift);
 
-    printf("Elapsed time: %f %llu %llu\n", pixel_per_second, elapsed_time, int_shift);
+    // printf("Elapsed time: %f %llu %llu\n", pixel_per_second, elapsed_time, int_shift);
 
     return int_shift;
 }

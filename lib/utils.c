@@ -4,6 +4,7 @@
 #include "utils.h"
 #include <math.h>
 #include <float.h>
+#include <string.h>
 #ifdef LOCAL_BUILD
 
 typedef unsigned int uint32_t;
@@ -31,9 +32,30 @@ raster_object_t *raster_object[MAX_RASTER_OBJECTS];
 
 // double buffer the state of the pixel strip, since we update next version in parallel with DMAing out old version
 value_bits_t buffers[2][BOARDS][NUM_PIXELS * 3];
+static uint16_t slices[512] = {32768, 33088, 33408, 33728, 34048, 34368, 34688, 35008, 35328, 35648, 35968, 36288, 36608, 36928, 37248, 37568, 37888, 38208, 38528, 38848, 39168, 39488, 39808, 40128, 40448, 40768, 41088, 41408, 41728, 42048, 42368, 42688, 43008, 43271, 43534, 43798, 44061, 44324, 44588, 44851, 45115, 45378, 45641, 45905, 46168, 46431, 46695, 46958, 47222, 47485, 47748, 48012, 48275, 48538, 48802, 49065, 49329, 49592, 49855, 50119, 50382, 50645, 50909, 51172, 51436, 51606, 51778, 51950, 52122, 52293, 52465, 52637, 52809, 52979, 53151, 53323, 53495, 53666, 53838, 54010, 54182, 54352, 54524, 54696, 54868, 55039, 55211, 55383, 55555, 55725, 55897, 56069, 56241, 56412, 56584, 56756, 56928, 56990, 57053, 57115, 57178, 57240, 57303, 57365, 57428, 57490, 57553, 57615, 57678, 57740, 57803, 57865, 57928, 57990, 58053, 58115, 58178, 58240, 58303, 58365, 58428, 58490, 58553, 58615, 58678, 58740, 58803, 58865, 58928, 58865, 58803, 58740, 58678, 58615, 58553, 58490, 58428, 58365, 58303, 58240, 58178, 58115, 58053, 57990, 57928, 57865, 57803, 57740, 57678, 57615, 57553, 57490, 57428, 57365, 57303, 57240, 57178, 57115, 57053, 56990, 56928, 56756, 56584, 56412, 56241, 56069, 55897, 55725, 55555, 55383, 55211, 55039, 54868, 54696, 54524, 54352, 54182, 54010, 53838, 53666, 53495, 53323, 53151, 52979, 52809, 52637, 52465, 52293, 52122, 51950, 51778, 51606, 51436, 51172, 50909, 50645, 50382, 50119, 49855, 49592, 49329, 49065, 48802, 48538, 48275, 48012, 47748, 47485, 47222, 46958, 46695, 46431, 46168, 45905, 45641, 45378, 45115, 44851, 44588, 44324, 44061, 43798, 43534, 43271, 43008, 42688, 42368, 42048, 41728, 41408, 41088, 40768, 40448, 40128, 39808, 39488, 39168, 38848, 38528, 38208, 37888, 37568, 37248, 36928, 36608, 36288, 35968, 35648, 35328, 35008, 34688, 34368, 34048, 33728, 33408, 33088, 32768, 32446, 32124, 31802, 31480, 31158, 30836, 30514, 30192, 29870, 29548, 29226, 28904, 28582, 28260, 27938, 27616, 27294, 26972, 26650, 26328, 26006, 25684, 25362, 25040, 24718, 24396, 24074, 23752, 23430, 23108, 22786, 22464, 22190, 21916, 21642, 21368, 21094, 20820, 20546, 20272, 19998, 19724, 19450, 19176, 18902, 18628, 18354, 18080, 17806, 17532, 17258, 16984, 16710, 16436, 16162, 15888, 15614, 15340, 15066, 14792, 14518, 14244, 13970, 13696, 13496, 13296, 13096, 12897, 12697, 12497, 12297, 12098, 11898, 11698, 11498, 11299, 11099, 10899, 10699, 10500, 10300, 10100, 9900, 9701, 9501, 9301, 9101, 8902, 8702, 8502, 8302, 8103, 7903, 7703, 7503, 7304, 7179, 7054, 6929, 6804, 6679, 6554, 6429, 6304, 6179, 6054, 5929, 5804, 5679, 5554, 5429, 5304, 5179, 5054, 4929, 4804, 4679, 4554, 4429, 4304, 4179, 4054, 3929, 3804, 3679, 3554, 3429, 3304, 3241, 3179, 3116, 3054, 2991, 2929, 2866, 2804, 2741, 2679, 2616, 2554, 2491, 2429, 2366, 2304, 2241, 2179, 2116, 2054, 1991, 1929, 1866, 1804, 1741, 1679, 1616, 1554, 1491, 1429, 1366, 1304, 1275, 1247, 1219, 1191, 1163, 1135, 1107, 1079, 1050, 1022, 994, 966, 938, 910, 882, 854, 825, 797, 769, 741, 713, 685, 657, 629, 600, 572, 544, 516, 488, 460, 432, 404, 393, 382, 372, 361, 350, 340, 329, 319, 308, 297, 287, 276, 265, 255, 244, 234, 223, 212, 202, 191, 180, 170, 159, 149, 138, 127, 117, 106, 95, 85, 74, 64, 62, 60, 58, 56, 54, 52, 50, 48, 46, 44, 42, 40, 38, 36, 34, 32, 30, 28, 26, 24, 22, 20, 18, 16, 14, 12, 10, 8, 6, 4, 2};
 
+static int total_area = 1 << 16;
 int raster_object_count = -1;
 
+// This is the fractional areas taken by a bin that starts at a given point.
+// The bins are broken into 256 slices, and the gaussian spans at most 2 bins, so there
+// are 512 slices. The first 256 slices are the first bin, and the second 256 slices are
+// the second bin.
+
+// Given that the gausian is centered in a bin, with fractional offset between 0 and 255, this returns the portion of
+// the bin to the left (a0), the current bin (a1), and the bin to the right (a2) - (this also applies to up/down).
+// The three areas should total 65535.
+
+Bins_t bin_pixel(uint8_t frac_offset)
+{
+    Bins_t bins = {0, 0, 0};
+    uint8_t i = 255 - frac_offset;
+    bins.a1 = slices[i];
+    bins.a2 = slices[(i + 256)];
+    bins.a0 = total_area - bins.a1 - bins.a2;
+    // printf("Bin Pixel: %d %d %d %d\n", bins.a0, bins.a1, bins.a2, bins.a0 + bins.a1 + bins.a2);
+    return bins;
+}
 int create_raster(uint16_t height, uint16_t width, uint board, uint strip, uint start_pixel, WrapMode wrap)
 
 {
@@ -518,7 +540,7 @@ void init_rainbow(int raster_id)
             {
 
                 h = (float)j / raster.width;
-                // h = h + (float)i / raster.height;
+                h = h + (float)i / raster.height / 3;
                 if (h > 1)
                 {
                     h -= 1;
@@ -561,7 +583,7 @@ static inline uint32_t bilinear_interpolate(uint32_t c00, uint32_t c10, uint32_t
 // Show a raster object with a shift in X and Y
 // The shift values are in the range [0, 1) and represent the fraction of the width/height to shift
 // this can be used to animate a raster object by moving it across the display in both directions
-void show_raster_object_with_shift(int i, uint64_t shift_x, uint64_t shift_y)
+void show_raster_object_with_shift2(int i, uint64_t shift_x, uint64_t shift_y)
 {
     raster_object_t raster = get_raster(i);
     if (raster.raster == NULL || raster.pixel_mapping == NULL)
@@ -602,6 +624,143 @@ void show_raster_object_with_shift(int i, uint64_t shift_x, uint64_t shift_y)
             uint32_t c11 = raster.raster[y1][x1];
             //  Apply bilinear interpolation using 16-bit integer math
             put_pixel(raster.pixel_mapping[y][x].board, raster.pixel_mapping[y][x].strip, raster.pixel_mapping[y][x].pixel, bilinear_interpolate(c00, c10, c01, c11, fx, fy));
+        }
+    }
+}
+
+static inline uint8_t saturating_add(uint8_t a, uint8_t b)
+{
+    uint16_t sum = a + b;
+    return sum | -(sum >> 8);
+}
+
+void show_raster_object_with_shift(int i, uint64_t shift_x, uint64_t shift_y)
+{
+    raster_object_t raster = get_raster(i);
+    if (raster.raster == NULL || raster.pixel_mapping == NULL)
+    {
+        printf("Invalid raster object in put_raster_object: %i\n", i);
+        return;
+    }
+    int width = raster.width;
+    int height = raster.height;
+    uint32_t *buffer = malloc(width * height * sizeof(uint32_t));
+    memset(buffer, 0, sizeof(*buffer) * width * height);
+    show_raster_object_with_shift_internal(buffer, i, shift_x, shift_y);
+    // Store the results
+    for (int y = 0; y < height; y++)
+    {
+        for (int x = 0; x < width; x++)
+        {
+            put_pixel(raster.pixel_mapping[y][x].board, raster.pixel_mapping[y][x].strip, raster.pixel_mapping[y][x].pixel, buffer[y * width + x]);
+        }
+    }
+    free(buffer);
+}
+
+void show_raster_objects_with_shift(int count, int i[], uint64_t shift_x[], uint64_t shift_y[])
+{
+    // All rasters must be the same size, use the first for the buffer
+    raster_object_t raster = get_raster(i[0]);
+    if (raster.raster == NULL || raster.pixel_mapping == NULL)
+    {
+        // printf("Invalid raster object in put_raster_object: %i\n", i);
+        return;
+    }
+    int width = raster.width;
+    int height = raster.height;
+    uint32_t *buffer = malloc(width * height * sizeof(uint32_t));
+    memset(buffer, 0, sizeof(*buffer) * width * height);
+    for (int j = 0; j < count; j++)
+    {
+        show_raster_object_with_shift_internal(buffer, i[j], shift_x[j], shift_y[j]);
+    }
+    // Store the results
+    for (int y = 0; y < height; y++)
+    {
+        for (int x = 0; x < width; x++)
+        {
+            put_pixel(raster.pixel_mapping[y][x].board, raster.pixel_mapping[y][x].strip, raster.pixel_mapping[y][x].pixel, buffer[y * width + x]);
+        }
+    }
+    free(buffer);
+}
+// Show a raster object with a shift in X and Y
+// The shift values store the integer offset in the first 16 bits, the fractional part in the last 16 bits
+// this can be used to animate a raster object by moving it across the display in both directions
+void show_raster_object_with_shift_internal(uint32_t *buffer, int i, uint64_t shift_x, uint64_t shift_y)
+{
+    raster_object_t raster = get_raster(i);
+    if (raster.raster == NULL || raster.pixel_mapping == NULL)
+    {
+        printf("Invalid raster object in put_raster_object: %i\n", i);
+        return;
+    }
+    int width = raster.width;
+    int height = raster.height;
+    // Convert shift values to pixel space with 16-bit fixed-point precision
+    int dx = (int)(shift_x) % (65536 * width);
+    int dy = (int)(shift_y) % (65536 * height);
+
+    int shift_x_int = dx >> 16; // Integer pixel shift
+    int shift_y_int = dy >> 16;
+
+    uint16_t fx = (dx & 0xFFFF) % 0xFFFF; // Fractional part (16-bit precision)
+    uint16_t fy = (dy & 0xFFFF) % 0xFFFF;
+
+    // zero out the buffer
+
+    for (int y = 0; y < height; y++)
+    {
+        // Compute wrapped Y indices using modulo
+        int y0 = (y - shift_y_int + height) % height;
+
+        for (int x = 0; x < width; x++)
+        {
+
+            // Compute wrapped X indices using modulo
+            int x0 = (x - shift_x_int + width) % width;
+            uint32_t val = raster.raster[y0][x0];
+            // printf("Val: %d %d %d %d %d\n", val, x0, y0, x, y);
+
+            if (!val)
+            {
+                continue;
+            }
+
+            Bins_t h = bin_pixel(fx >> 8);
+            Bins_t v = bin_pixel(fy >> 8);
+            uint32_t hor[3] = {h.a0, h.a1, h.a2};
+            uint32_t ver[3] = {v.a0, v.a1, v.a2};
+            for (int i = 0; i < 3; i++)
+            {
+                for (int j = 0; j < 3; j++)
+                {
+                    // Get the RGB values from the pixel
+                    int r = (val >> 16) & 0xFF;
+                    int g = (val >> 8) & 0xFF;
+                    int b = val & 0xFF;
+                    // Apply the Gaussian weights to the RGB values
+                    // You need to multiply the weights from the x and y direction
+                    // and then normalize the result
+                    uint16_t w = hor[i] * ver[j] >> 16;
+                    uint8_t wr = (r * w) >> 16;
+                    uint8_t wg = (g * w) >> 16;
+                    uint8_t wb = (b * w) >> 16;
+                    int x1 = (x + (i - 1) + width) % width;
+                    int y1 = (y + (j - 1) + height) % height;
+                    uint32_t c = buffer[y1 * width + x1];
+                    uint8_t r2 = (c >> 16) & 0xFF;
+                    uint8_t g2 = (c >> 8) & 0xFF;
+                    uint8_t b2 = c & 0xFF;
+
+                    // Blend existing pixel color with the new color
+                    uint8_t rf = saturating_add(r2, wr);
+                    uint8_t gf = saturating_add(g2, wg);
+                    uint8_t bf = saturating_add(b2, wb);
+                    buffer[y1 * width + x1] = rf << 16 | gf << 8 | bf;
+                }
+            }
         }
     }
 }

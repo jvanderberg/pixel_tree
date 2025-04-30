@@ -59,7 +59,7 @@ pico_enable_stdio_uart(pio_ws2812_parallel 0)
 pico_add_extra_outputs(pio_ws2812_parallel)
 pico_generate_pio_header(pio_ws2812_parallel ${CMAKE_CURRENT_LIST_DIR}/ws2812.pio OUTPUT_DIR ${CMAKE_CURRENT_LIST_DIR}/generated)
 
-target_sources(pio_ws2812_parallel PRIVATE ws2812_parallel.c lib/utils.c lib/pixelblit.c)
+target_sources(pio_ws2812_parallel PRIVATE ws2812_parallel.c lib/utils.c lib/pixelblit.c ir_control.c)
 
 target_compile_definitions(pio_ws2812_parallel PRIVATE
         PIN_DBG1=3)
