@@ -52,6 +52,3 @@ void init_rainbow(int raster_id);
 uint64_t stop_timers(const char *log_message);
 
 #endif // UTILS_H
-void start_timers();
-
-uint64_t stop_timers(const char *log_message);
